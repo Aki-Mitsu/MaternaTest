@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --background: #F8F3F7;
+    --foreground: #2C1D30;
+    --card: #FFFFFF;
+    --card-foreground: #2C1D30;
+    --popover: #FFFFFF;
+    --popover-foreground: #2C1D30;
+    --primary: #69486F;
+    --primary-foreground: #FFFFFF;
+    --secondary: #F4E8F2;
+    --secondary-foreground: #4A3050;
+    --muted: #EFE4ED;
+    --muted-foreground: #7E6582;
+    --accent: #FDE8DE;
+    --accent-foreground: #5B3860;
+    --destructive: #E57373;
+    --destructive-foreground: #FFFFFF;
+    --border: #EDE0EC;
+    --input: #EDE0EC;
+    --ring: #9E4A75;
+    --radius: 1.5rem;
+
+    /* Serene Mindfulness Palette */
+    --plum-dark: #4C3053;
+    --plum-primary: #69486F;
+    --plum-light: #7E5986;
+    --berry-rose: #A14A76;
+    --peach-glow: #FDD9CC;
+    --lavender-mist: #EADBFA;
+    --lavender-soft: #F1E9F6;
+    --cream-bg: #F8F3F7;
+  }
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+.font-serif {
+  font-family: var(--font-serif), "Playfair Display", Georgia, Cambria, serif;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #D8C3D8;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #BF9FBF;
+}
+
+/* Hide scrollbars for carousel strips */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Soft Refracting Glass Effect */
+.glass-card {
+  background: rgba(255, 255, 255, 0.90);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10px 30px rgba(105, 72, 111, 0.05);
+}
+
+.glass-card-subtle {
+  background: rgba(255, 255, 255, 0.70);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+/* Plum Mindfulness Card */
+.plum-card {
+  background: linear-gradient(135deg, #785780 0%, #66466E 50%, #4F3156 100%);
+  color: #FFFFFF;
+}
+
+/* Rose Sunset Audio Card */
+.sunset-card {
+  background: linear-gradient(135deg, #DF6385 0%, #BA588B 50%, #764778 100%);
+  color: #FFFFFF;
+}
