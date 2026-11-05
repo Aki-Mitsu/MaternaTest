@@ -94,3 +94,4 @@ git push origin feature/your-feature-name
 
 * **Keep PRs Small:** Aim for focused, digestible changes. Smaller PRs are reviewed faster and more thoroughly.
 * **Be Respectful:** Focus comments on the code, not the author. Ask constructive questions (e.g., *"What do you think about using X approach here?"*) rather than making demands.
+
