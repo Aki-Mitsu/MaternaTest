@@ -188,15 +188,17 @@ Postpartum health and infant logs are deeply private.
 
 ## 🤝 Contributing
 
-Contributions, feedback, and suggestions are warmly welcomed!
+Contributions, feedback, and suggestions are warmly welcomed! Please read our [**Contributing Guide**](docs/CONTRIBUTING.md) for details on our branch conventions, Conventional Commits specification, code of conduct, and pull request workflow.
+
 1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+2. Create your Feature Branch (`git checkout -b feature/amazing-feature`)
+3. Commit your Changes using Conventional Commits (`git commit -m 'feat: add amazing feature'`)
+4. Push to the Branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request targeting `staging`
 
 ---
 
 ## 📄 License
 
 This project is open-source and available under the [MIT License](LICENSE).
+
