@@ -10,6 +10,8 @@ export interface Profile {
   baby_weight_lbs?: number | null;
   baby_length_in?: number | null;
   baby_head_in?: number | null;
+  onboarded?: boolean;
+  last_wake_at?: string | null;
   created_at: string;
   updated_at?: string;
 }
@@ -52,6 +54,16 @@ export interface MaternalRecoveryLog {
   updated_at?: string;
 }
 
+export interface GrowthMeasurement {
+  id: string;
+  user_id: string;
+  measured_on: string;
+  weight_lbs: number | null;
+  length_in: number | null;
+  head_in: number | null;
+  created_at?: string;
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -69,6 +81,11 @@ export type Database = {
         Row: MaternalMoodLog;
         Insert: Omit<MaternalMoodLog, 'id' | 'created_at'> & { id?: string; created_at?: string };
         Update: Partial<MaternalMoodLog>;
+      };
+      growth_measurements: {
+        Row: GrowthMeasurement;
+        Insert: Omit<GrowthMeasurement, 'id' | 'created_at'> & { id?: string; created_at?: string };
+        Update: Partial<GrowthMeasurement>;
       };
       maternal_recovery_logs: {
         Row: MaternalRecoveryLog;

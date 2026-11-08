@@ -1,19 +1,17 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  User, 
-  Baby, 
-  Calendar, 
-  Heart, 
-  Check, 
-  ShieldCheck, 
-  LogOut, 
-  RotateCcw, 
+import {
+  User,
+  Baby,
+  Check,
+  ShieldCheck,
+  LogOut,
   Sparkles,
-  PhoneCall
+  PhoneCall,
+  Download,
+  Trash2,
 } from 'lucide-react';
 import { useMaterna } from '@/lib/context/MaternaContext';
 import { calculatePostpartumAge } from '@/lib/utils';
@@ -24,20 +22,25 @@ export default function ProfilePage() {
   const { profile, updateProfile, userEmail, isAuthenticated, signOut } = useMaterna();
   const postData = calculatePostpartumAge(profile.baby_birth_date);
 
-  const [fullName, setFullName] = useState(profile.full_name || 'Sarah');
-  const [babyName, setBabyName] = useState(profile.baby_name || 'Leo');
-  const [babyBirthDate, setBabyBirthDate] = useState(profile.baby_birth_date || '2026-09-12');
+  const [fullNameDraft, setFullNameDraft] = useState<string | null>(null);
+  const [babyNameDraft, setBabyNameDraft] = useState<string | null>(null);
+  const [birthDateDraft, setBirthDateDraft] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
-  useEffect(() => {
-    setFullName(profile.full_name || 'Sarah');
-    setBabyName(profile.baby_name || 'Leo');
-    setBabyBirthDate(profile.baby_birth_date || '2026-09-12');
-  }, [profile.full_name, profile.baby_name, profile.baby_birth_date]);
+  const fullName = fullNameDraft ?? (profile.full_name || 'Mama');
+  const babyName = babyNameDraft ?? (profile.baby_name || 'Baby');
+  const babyBirthDate = birthDateDraft ?? (profile.baby_birth_date || '');
 
   const handleSignOut = async () => {
     await signOut();
     router.push('/login');
+  };
+
+  const handleRerunOnboarding = async () => {
+    await updateProfile({ onboarded: false });
+    router.push('/onboarding');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -47,21 +50,24 @@ export default function ProfilePage() {
       baby_name: babyName,
       baby_birth_date: babyBirthDate,
     });
+    setFullNameDraft(null);
+    setBabyNameDraft(null);
+    setBirthDateDraft(null);
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2500);
   };
 
-  const handleResetDemo = async () => {
-    await updateProfile({
-      full_name: 'Sarah',
-      baby_name: 'Leo',
-      baby_birth_date: '2026-09-12',
-    });
-    setFullName('Sarah');
-    setBabyName('Leo');
-    setBabyBirthDate('2026-09-12');
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 2000);
+  const handleClearAllData = async () => {
+    setIsClearing(true);
+    try {
+      const res = await fetch('/api/user/delete', { method: 'DELETE' });
+      if (res.ok) {
+        window.location.href = '/onboarding';
+      }
+    } finally {
+      setIsClearing(false);
+      setConfirmClear(false);
+    }
   };
 
   return (
@@ -80,9 +86,9 @@ export default function ProfilePage() {
                 <LotusIcon className="w-3.5 h-3.5 text-[#9E4875]" />
                 <span>MOTHER SANCTUARY PROFILE</span>
               </div>
-              <h1 className="font-serif text-2xl font-bold text-[#2A162B]">{profile.full_name || 'Sarah'}</h1>
+              <h1 className="font-serif text-2xl font-bold text-[#2A162B]">{profile.full_name || 'Mama'}</h1>
               <p className="text-xs text-[#7A617D]">
-                Mother of {profile.baby_name || 'Leo'} • Week {postData.weeks} Postpartum
+                Mother of {profile.baby_name || 'Baby'} • Week {postData.weeks} Postpartum
               </p>
               {isAuthenticated && userEmail && (
                 <p className="text-[10px] font-semibold text-[#9E4875] mt-0.5">
@@ -122,7 +128,7 @@ export default function ProfilePage() {
           <section className="bg-white rounded-[32px] p-6 border border-[#EFE3EE] shadow-[0_8px_30px_rgba(140,80,120,0.05)] space-y-3">
             <h2 className="font-serif text-base font-bold text-[#2A162B] flex items-center gap-2">
               <PhoneCall className="w-4.5 h-4.5 text-[#B84E72]" />
-              <span>Maternal Crisis & Postpartum Hotlines</span>
+              <span>Maternal Crisis &amp; Postpartum Hotlines</span>
             </h2>
             <div className="space-y-2 text-xs">
               <div className="bg-[#FFF4F7] p-3.5 rounded-2xl border border-[#FAD9E2]">
@@ -139,13 +145,14 @@ export default function ProfilePage() {
 
           {/* Account Navigation / Switch User */}
           <section className="bg-white rounded-[28px] p-4 border border-[#EFE3EE] shadow-xs flex items-center justify-between">
-            <Link
-              href="/onboarding"
-              className="text-xs font-semibold text-[#845E87] hover:text-[#543657] flex items-center gap-1.5"
+            <button
+              type="button"
+              onClick={handleRerunOnboarding}
+              className="text-xs font-semibold text-[#845E87] hover:text-[#543657] flex items-center gap-1.5 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>Re-run Onboarding Setup</span>
-            </Link>
+            </button>
             <button
               type="button"
               onClick={handleSignOut}
@@ -157,22 +164,14 @@ export default function ProfilePage() {
           </section>
         </div>
 
-        {/* Right Column (7 cols): Edit Profile Form */}
+        {/* Right Column (7 cols): Edit Profile Form & Data Export */}
         <div className="lg:col-span-7 space-y-6">
           <section className="bg-white rounded-[32px] p-6 sm:p-8 border border-[#EFE3EE] shadow-[0_8px_30px_rgba(140,80,120,0.05)] space-y-5">
             <div className="flex items-center justify-between">
               <h2 className="font-serif text-lg font-bold text-[#2A162B] flex items-center gap-2">
                 <User className="w-5 h-5 text-[#9E4875]" />
-                <span>Profile & Baby Information</span>
+                <span>Profile &amp; Baby Information</span>
               </h2>
-              <button
-                type="button"
-                onClick={handleResetDemo}
-                className="text-[11px] text-[#9E4875] hover:text-[#7C355A] font-semibold flex items-center gap-1 cursor-pointer"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>Reset Demo</span>
-              </button>
             </div>
 
             <form onSubmit={handleSave} className="space-y-4">
@@ -183,7 +182,7 @@ export default function ProfilePage() {
                 <input
                   type="text"
                   value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  onChange={(e) => setFullNameDraft(e.target.value)}
                   className="w-full px-4 py-3 rounded-2xl bg-[#FAF5FA] border border-[#ECE0EB] text-xs text-[#2A162B] font-medium focus:outline-hidden focus:ring-1 focus:ring-[#9E4875]"
                   required
                 />
@@ -196,7 +195,7 @@ export default function ProfilePage() {
                 <input
                   type="text"
                   value={babyName}
-                  onChange={(e) => setBabyName(e.target.value)}
+                  onChange={(e) => setBabyNameDraft(e.target.value)}
                   className="w-full px-4 py-3 rounded-2xl bg-[#FAF5FA] border border-[#ECE0EB] text-xs text-[#2A162B] font-medium focus:outline-hidden focus:ring-1 focus:ring-[#9E4875]"
                   required
                 />
@@ -209,7 +208,7 @@ export default function ProfilePage() {
                 <input
                   type="date"
                   value={babyBirthDate}
-                  onChange={(e) => setBabyBirthDate(e.target.value)}
+                  onChange={(e) => setBirthDateDraft(e.target.value)}
                   className="w-full px-4 py-3 rounded-2xl bg-[#FAF5FA] border border-[#ECE0EB] text-xs text-[#2A162B] font-medium focus:outline-hidden focus:ring-1 focus:ring-[#9E4875]"
                   required
                 />
@@ -233,6 +232,74 @@ export default function ProfilePage() {
                 )}
               </button>
             </form>
+          </section>
+
+          {/* Data Privacy, Export & Account Controls */}
+          <section className="bg-white rounded-[32px] p-6 sm:p-8 border border-[#EFE3EE] shadow-[0_8px_30px_rgba(140,80,120,0.05)] space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-serif text-lg font-bold text-[#2A162B] flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-[#9E4875]" />
+                  <span>Data Export &amp; Privacy Controls</span>
+                </h2>
+                <p className="text-xs text-[#7A617D] mt-0.5">
+                  Download a full copy of your baby care logs, growth records, and maternal reflections for your pediatrician or OB/GYN.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <a
+                href="/api/user/export?format=csv"
+                download
+                className="py-3 px-4 rounded-2xl bg-[#FAF4F9] hover:bg-[#F3E7F2] border border-[#EBDDE9] text-[#553658] font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+              >
+                <Download className="w-4 h-4 text-[#9E4875]" />
+                <span>Export Logs (.CSV)</span>
+              </a>
+              <a
+                href="/api/user/export?format=json"
+                download
+                className="py-3 px-4 rounded-2xl bg-[#FAF4F9] hover:bg-[#F3E7F2] border border-[#EBDDE9] text-[#553658] font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+              >
+                <Download className="w-4 h-4 text-[#9E4875]" />
+                <span>Export Full Backup (.JSON)</span>
+              </a>
+            </div>
+
+            <div className="pt-3 border-t border-[#F2E8F1] flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-[11px] text-[#8C728C]">
+                Need a fresh start? Permanently delete all logged feeds, diapers, sleep, mood, recovery, and growth records from the cloud.
+              </p>
+              {!confirmClear ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmClear(true)}
+                  className="text-xs font-bold text-[#C93B63] hover:text-[#9E2B4B] flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Clear All Cloud Data</span>
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isClearing}
+                    onClick={handleClearAllData}
+                    className="px-3.5 py-1.5 rounded-full bg-[#C93B63] hover:bg-[#9E2B4B] text-white text-xs font-bold cursor-pointer disabled:opacity-60"
+                  >
+                    {isClearing ? 'Deleting...' : 'Confirm Delete'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClear(false)}
+                    className="px-3 py-1.5 rounded-full border border-[#E8D9E8] text-xs font-semibold text-[#5C3E60] cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
           </section>
         </div>
       </div>

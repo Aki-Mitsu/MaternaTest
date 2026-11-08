@@ -73,8 +73,9 @@ Standard pregnancy apps often end at delivery—leaving new mothers facing the "
 | **Styling**         | [Tailwind CSS v4](https://tailwindcss.com/) + CSS Variables                      |
 | **Icons**           | [Lucide React](https://lucide.dev/)                                              |
 | **Database & Auth** | [Supabase](https://supabase.com/) (PostgreSQL, Row Level Security, SSR client)   |
+| **AI Companion**    | [Google Gemini API](https://ai.google.dev/) (`gemini-3.8-flash` + clinical guardrails) |
 | **Effects**         | [Canvas Confetti](https://www.npmjs.com/package/canvas-confetti)                 |
-| **Persistence**     | Hybrid local-first (`localStorage`) with seamless Supabase cloud synchronization |
+| **Persistence**     | Supabase cloud persistence with Row Level Security (`auth.uid() = user_id`)      |
 
 ---
 
@@ -84,7 +85,7 @@ Standard pregnancy apps often end at delivery—leaving new mothers facing the "
 Materna/
 ├── app/
 │   ├── (auth)/
-│   │   ├── login/               # Instant 1-tap demo & Supabase magic link
+│   │   ├── login/               # Google OAuth, Email/Password & Magic Link auth
 │   │   └── onboarding/          # 2-step setup: mother, baby, & priority focus
 │   ├── (dashboard)/
 │   │   ├── layout.tsx           # Mobile frame wrapper + desktop navigation
@@ -93,8 +94,11 @@ Materna/
 │   │   ├── recovery/            # Pelvic floor rehab & hydration hub
 │   │   └── profile/             # Mother & baby profiles, settings, data export
 │   ├── api/
-│   │   ├── ai/                  # AI Sanctuary companion streaming endpoint
-│   │   └── user/stage/          # User stage transition endpoints
+│   │   ├── ai/                  # Gemini 3.8 Flash Sanctuary companion endpoint
+│   │   └── user/
+│   │       ├── stage/           # Validated user profile update endpoint
+│   │       ├── export/          # Server-side CSV & JSON data export
+│   │       └── delete/          # Cloud health logs & account reset endpoint
 │   ├── globals.css              # Serenity color palette, organic radii, soft shadows
 │   └── layout.tsx               # Root layout & font definitions
 ├── components/
@@ -155,22 +159,23 @@ Copy `.env.example` to `.env.local`:
 cp .env.example .env.local
 ```
 
-Populate `.env.local` with your Supabase credentials (optional for local offline mode):
+Populate `.env.local` with your Supabase and Gemini credentials:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-3.8-flash
 ```
-
-> **Note:** Materna runs out-of-the-box in local-first demo mode using `localStorage` if Supabase keys are not provided.
 
 ### 5. Database Setup (Supabase)
 
-To enable multi-device sync, apply the database schema in your Supabase project:
+Apply the database migrations in your Supabase project:
 
 1. Navigate to your Supabase SQL Editor.
-2. Run the SQL schema from [`supabase/migrations/20261101000000_postpartum_schema.sql`](file:///c:/Users/Claire%20Nicole%20Bay/OneDrive/Desktop/Materna/supabase/migrations/20261101000000_postpartum_schema.sql).
-3. (Optional) Run the seed script from [`supabase/seed.sql`](file:///c:/Users/Claire%20Nicole%20Bay/OneDrive/Desktop/Materna/supabase/seed.sql) to populate Sarah & Leo's Week 6 demo data.
+2. Run [`supabase/migrations/20261101000000_postpartum_schema.sql`](supabase/migrations/20261101000000_postpartum_schema.sql).
+3. Run [`supabase/migrations/20261108000000_sync_growth_onboarding.sql`](supabase/migrations/20261108000000_sync_growth_onboarding.sql).
+4. See [`docs/BACKEND_CHECKLIST.md`](docs/BACKEND_CHECKLIST.md) for the full backend architecture and checklist.
 
 ### 6. Start the Development Server
 

@@ -27,7 +27,7 @@ import { BABY_52_WEEKS, BabyMilestoneWeek } from '@/lib/data/babyMilestones52';
 export function HeroGreeting() {
   const { profile } = useMaterna();
   const postData = calculatePostpartumAge(profile.baby_birth_date);
-  const babyName = profile.baby_name || 'Leo';
+  const babyName = profile.baby_name || 'Baby';
   const currentWeek = Math.min(Math.max(postData.weeks || 6, 1), 52);
 
   // States
@@ -120,7 +120,7 @@ export function HeroGreeting() {
           <span className="text-[#9E4875] animate-pulse">♡</span>
         </p>
         <p className="text-xs text-[#8B668C] pt-0.5">
-          Welcome back, {profile.full_name || 'Sarah'} · Baby {babyName} is {currentWeek} weeks old (Month {activeMilestone.month})
+          Welcome back, {profile.full_name || 'Mama'} · Baby {babyName} is {currentWeek} weeks old (Month {activeMilestone.month})
         </p>
       </div>
 

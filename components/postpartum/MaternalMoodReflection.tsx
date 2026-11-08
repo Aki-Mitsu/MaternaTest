@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Check, TrendingUp, BookOpen } from 'lucide-react';
+import { Check, TrendingUp, BookOpen, Trash2 } from 'lucide-react';
 import { useMaterna } from '@/lib/context/MaternaContext';
 import { LotusIcon } from '../shared/LotusIcon';
 
@@ -15,7 +15,7 @@ interface MoodOption {
 }
 
 export function MaternalMoodReflection() {
-  const { moodLogs, addMoodLog } = useMaterna();
+  const { moodLogs, addMoodLog, deleteMoodLog } = useMaterna();
   const [selectedScore, setSelectedScore] = useState<number>(4); // Default: Grounded
   const [selectedTags, setSelectedTags] = useState<string[]>([
     "Baby's Feeding",
@@ -126,7 +126,7 @@ export function MaternalMoodReflection() {
       ? 'Balanced'
       : 'Tender';
 
-  const recentNotes = moodLogs.filter((m) => m.notes && m.notes.trim().length > 0).slice(0, 3);
+  const recentNotes = moodLogs.slice(0, 5);
 
   return (
     <div className="space-y-6">
@@ -391,7 +391,7 @@ export function MaternalMoodReflection() {
           <div className="pt-3 border-t border-[#F1E6F0] space-y-2">
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#7A5E7C]">
               <BookOpen className="w-3.5 h-3.5 text-[#9E4875]" />
-              <span>Recent Journal Notes</span>
+              <span>Recent Check-Ins &amp; Journal Notes</span>
             </div>
             <div className="space-y-1.5">
               {recentNotes.map((item) => (
@@ -400,10 +400,20 @@ export function MaternalMoodReflection() {
                   className="bg-[#FAF5FA] p-2.5 rounded-xl border border-[#EFE2EE] text-[11px] text-[#4C3053]"
                 >
                   <div className="flex items-center justify-between text-[10px] text-[#8E738E] font-semibold mb-0.5">
-                    <span>{item.logged_date}</span>
-                    <span>Score: {item.score}/5</span>
+                    <span>
+                      {item.logged_date} • Score: {item.score}/5
+                      {item.tags?.length ? ` • ${item.tags.slice(0, 2).join(', ')}` : ''}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => deleteMoodLog(item.id)}
+                      aria-label="Delete reflection"
+                      className="text-[#A888AA] hover:text-[#C93B63] transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                  <p className="italic">&ldquo;{item.notes}&rdquo;</p>
+                  {item.notes && <p className="italic">&ldquo;{item.notes}&rdquo;</p>}
                 </div>
               ))}
             </div>

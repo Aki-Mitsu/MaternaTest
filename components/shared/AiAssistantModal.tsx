@@ -13,6 +13,53 @@ interface Message {
   timestamp: string;
 }
 
+function renderInline(text: string): React.ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') && part.length > 4 ? (
+      <strong key={i} className="font-bold">
+        {part.slice(2, -2)}
+      </strong>
+    ) : (
+      <React.Fragment key={i}>{part}</React.Fragment>
+    )
+  );
+}
+
+// Lightweight renderer for the assistant's replies: paragraphs, "-"/"*" bullet lists and **bold**.
+function FormattedMessage({ text }: { text: string }) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const blocks: React.ReactNode[] = [];
+  let bullets: string[] = [];
+
+  const flushBullets = () => {
+    if (bullets.length) {
+      const items = bullets;
+      bullets = [];
+      blocks.push(
+        <ul key={`ul-${blocks.length}`} className="list-disc pl-5 space-y-1">
+          {items.map((b, i) => (
+            <li key={i}>{renderInline(b)}</li>
+          ))}
+        </ul>
+      );
+    }
+  };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    const bullet = line.match(/^[-*•]\s+(.*)$/);
+    if (bullet) {
+      bullets.push(bullet[1]);
+    } else {
+      flushBullets();
+      if (line) blocks.push(<p key={`p-${blocks.length}`}>{renderInline(line)}</p>);
+    }
+  }
+  flushBullets();
+
+  return <div className="space-y-2">{blocks}</div>;
+}
+
 export function AiAssistantModal() {
   const { isAiChatOpen, setIsAiChatOpen, profile, babyLogs, moodLogs, recoveryLog } = useMaterna();
   const [input, setInput] = useState('');
@@ -20,7 +67,7 @@ export function AiAssistantModal() {
     {
       id: 'welcome',
       sender: 'assistant',
-      text: `Hello ${profile.full_name || 'Sarah'}. Caring for ${profile.baby_name || 'Leo'} is profound, beautiful, and exhausting work. I'm right here with you — whether it's 3-AM questions on wake windows, feeding and milk supply, or needing gentle emotional reassurance. How can I help right now?`,
+      text: `Hello ${profile.full_name || 'Mama'}. Caring for ${profile.baby_name || 'Baby'} is profound, beautiful, and exhausting work. I'm right here with you — whether it's 3-AM questions on wake windows, feeding and milk supply, or needing gentle emotional reassurance. How can I help right now?`,
       timestamp: 'Just now',
     },
   ]);
@@ -38,7 +85,7 @@ export function AiAssistantModal() {
     .reduce((acc, c) => acc + (c.details.duration_mins || 0) / 60, 0);
 
   const samplePrompts = [
-    `What are ${profile.baby_name || 'Leo'}'s wake windows at Week ${postData.weeks}?`,
+    `What are ${profile.baby_name || 'Baby'}'s wake windows at Week ${postData.weeks}?`,
     'Gentle ways to relieve newborn gas',
     'I feel overwhelmed and emotional tonight',
     'How to tell if baby is getting enough milk?',
@@ -69,8 +116,8 @@ export function AiAssistantModal() {
             content: m.text,
           })),
           context: {
-            motherName: profile.full_name || 'Sarah',
-            babyName: profile.baby_name || 'Leo',
+            motherName: profile.full_name || 'Mama',
+            babyName: profile.baby_name || 'Baby',
             weeksPostpartum: postData.weeks,
             wakeWindowMins: postData.recommendedWakeWindowMins,
             feedsToday,
@@ -82,10 +129,19 @@ export function AiAssistantModal() {
         }),
       });
 
-      const data = await response.json();
-      const replyText =
-        data?.content ||
-        `I'm here with you, ${profile.full_name || 'Sarah'}. How can I support you and ${profile.baby_name || 'Leo'} today?`;
+      const data = await response.json().catch(() => null);
+      let replyText: string;
+      if (response.ok && data?.content) {
+        replyText = data.content;
+      } else if (response.status === 401) {
+        replyText = 'Your session has expired. Please sign in again to keep chatting.';
+      } else if (response.status === 504) {
+        replyText = `That took longer than expected, ${profile.full_name || 'Mama'}. Please try sending it again in a moment.`;
+      } else if (response.status === 429) {
+        replyText = data?.error || 'You are sending messages quickly. Please wait a moment and try again.';
+      } else {
+        replyText = `I'm having trouble connecting right now, ${profile.full_name || 'Mama'}. Please try again in a moment. If this is urgent or medical, please contact your care provider.`;
+      }
 
       setMessages((prev) => [
         ...prev,
@@ -102,7 +158,7 @@ export function AiAssistantModal() {
         {
           id: `assistant-${Date.now()}`,
           sender: 'assistant',
-          text: `I'm here with you, ${profile.full_name || 'Sarah'}. Please take a gentle breath — how can I help with ${profile.baby_name || 'Leo'}'s care or your recovery?`,
+          text: `I'm here with you, ${profile.full_name || 'Mama'}. Please take a gentle breath — how can I help with ${profile.baby_name || 'Baby'}'s care or your recovery?`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
@@ -161,7 +217,7 @@ export function AiAssistantModal() {
                     : 'bg-white text-[#2C182D] border border-[#EFE1ED] rounded-bl-xs shadow-xs'
                 }`}
               >
-                {msg.text}
+                {msg.sender === 'assistant' ? <FormattedMessage text={msg.text} /> : msg.text}
               </div>
               <span className="text-[10px] text-[#A088A1] mt-1 px-1">{msg.timestamp}</span>
             </div>

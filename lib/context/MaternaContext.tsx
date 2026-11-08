@@ -1,11 +1,20 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react';
 import type {
   Profile,
   BabyLog,
   MaternalMoodLog,
   MaternalRecoveryLog,
+  GrowthMeasurement,
   BabyLogType,
   BabyLogDetails,
 } from '@/types/database';
@@ -13,24 +22,38 @@ import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
 export interface MaternaContextType {
   profile: Profile;
-  updateProfile: (updates: Partial<Profile>) => Promise<void>;
+  updateProfile: (updates: Partial<Profile>) => Promise<boolean>;
   babyLogs: BabyLog[];
   addBabyLog: (type: BabyLogType, details: BabyLogDetails) => Promise<void>;
+  updateBabyLog: (id: string, details: BabyLogDetails) => Promise<void>;
   deleteBabyLog: (id: string) => Promise<void>;
   moodLogs: MaternalMoodLog[];
   addMoodLog: (score: number, tags: string[], notes?: string) => Promise<void>;
+  deleteMoodLog: (id: string) => Promise<void>;
   recoveryLog: MaternalRecoveryLog;
+  recoveryHistory: MaternalRecoveryLog[];
   updateWaterGlasses: (glasses: number) => Promise<void>;
   toggleRecoveryExercise: (exerciseId: string) => Promise<void>;
   toggleMilestone: (milestoneId: string) => Promise<void>;
   toggleFavoriteTrack: (trackId: string) => Promise<void>;
+  growthMeasurements: GrowthMeasurement[];
+  addGrowthMeasurement: (m: {
+    weight_lbs?: number | null;
+    length_in?: number | null;
+    head_in?: number | null;
+  }) => Promise<void>;
+  deleteGrowthMeasurement: (id: string) => Promise<void>;
   lastWakeTimestamp: string;
-  recordBabyWakeUp: () => void;
+  recordBabyWakeUp: () => Promise<void>;
   isAiChatOpen: boolean;
   setIsAiChatOpen: (open: boolean) => void;
+  /** True once the initial session check + data load has finished. */
   isInitialized: boolean;
   userEmail: string | null;
   isAuthenticated: boolean;
+  /** Last failed save/load message, or null. Cleared with clearSyncError. */
+  syncError: string | null;
+  clearSyncError: () => void;
   signOut: () => Promise<void>;
 }
 
@@ -45,525 +68,284 @@ function generateUuid(): string {
   });
 }
 
+/** Local calendar date (YYYY-MM-DD), so "today" matches the mother's own day. */
 function getTodayDateString(): string {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-const defaultProfile: Profile = {
-  id: '00000000-0000-0000-0000-000000000001',
-  full_name: 'Sarah',
-  baby_birth_date: '2026-09-12', // ~6 weeks ago
-  baby_name: 'Leo',
-  primary_focus: ['Wake Windows & Sleep', 'Nursing & Milk Supply'],
-  completed_milestones: ['m-1', 'm-2'],
-  favorite_tracks: ['t-1'],
-  nap_target: 4,
-  baby_weight_lbs: null,
-  baby_length_in: null,
-  baby_head_in: null,
-  created_at: '2026-10-24T00:00:00.000Z',
-};
+const INITIAL_DATE_PLACEHOLDER = '2026-10-24';
+const INITIAL_ISO_PLACEHOLDER = '2026-10-24T09:00:00.000Z';
 
-const defaultBabyLogs: BabyLog[] = [
-  {
-    id: '00000000-0000-0000-0000-000000000101',
-    user_id: defaultProfile.id,
-    log_type: 'feed',
-    details: { side: 'left', duration_mins: 22, amount_ml: 120 },
-    timestamp: '2026-10-24T08:48:00.000Z',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000102',
-    user_id: defaultProfile.id,
-    log_type: 'diaper',
-    details: { type: 'wet' },
-    timestamp: '2026-10-24T08:15:00.000Z',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000103',
-    user_id: defaultProfile.id,
-    log_type: 'sleep',
-    details: { duration_mins: 85, notes: 'Morning nap in crib' },
-    timestamp: '2026-10-24T07:30:00.000Z',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000104',
-    user_id: defaultProfile.id,
-    log_type: 'feed',
-    details: { side: 'right', duration_mins: 18 },
-    timestamp: '2026-10-24T05:30:00.000Z',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000105',
-    user_id: defaultProfile.id,
-    log_type: 'sleep',
-    details: { duration_mins: 95, notes: 'Early morning stretch' },
-    timestamp: '2026-10-24T03:30:00.000Z',
-  },
-];
+function emptyProfile(id = ''): Profile {
+  return {
+    id,
+    full_name: '',
+    baby_name: '',
+    baby_birth_date: INITIAL_DATE_PLACEHOLDER,
+    primary_focus: [],
+    completed_milestones: [],
+    favorite_tracks: [],
+    nap_target: 4,
+    baby_weight_lbs: null,
+    baby_length_in: null,
+    baby_head_in: null,
+    onboarded: false,
+    last_wake_at: null,
+    created_at: INITIAL_ISO_PLACEHOLDER,
+  };
+}
 
-const defaultMoodLogs: MaternalMoodLog[] = [
-  {
-    id: '00000000-0000-0000-0000-000000000201',
-    user_id: defaultProfile.id,
-    score: 4,
-    tags: ["Baby's Feeding", 'Grateful', 'Partner Support'],
-    notes: 'Feeling centered after a restful nursing session and breathing exercise.',
-    logged_date: '2026-10-24',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000202',
-    user_id: defaultProfile.id,
-    score: 5,
-    tags: ['Grateful', 'Partner Support', 'Quiet Time'],
-    notes: 'Baby smiled after morning feed!',
-    logged_date: '2026-10-23',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000203',
-    user_id: defaultProfile.id,
-    score: 3,
-    tags: ["Baby's Feeding", 'Physical Healing'],
-    logged_date: '2026-10-22',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000204',
-    user_id: defaultProfile.id,
-    score: 4,
-    tags: ["Baby's Feeding", 'Partner Support'],
-    logged_date: '2026-10-21',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000205',
-    user_id: defaultProfile.id,
-    score: 2,
-    tags: ['Sleep Deprivation', 'Hormonal Shift', "Baby's Feeding"],
-    notes: 'Cluster feeding night, feeling tender and tired.',
-    logged_date: '2026-10-20',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000206',
-    user_id: defaultProfile.id,
-    score: 4,
-    tags: ['Grateful', 'Physical Healing'],
-    logged_date: '2026-10-19',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000207',
-    user_id: defaultProfile.id,
-    score: 3,
-    tags: ['Sleep Deprivation', "Baby's Feeding"],
-    logged_date: '2026-10-18',
-  },
-];
-
-const defaultRecoveryLog: MaternalRecoveryLog = {
-  id: '00000000-0000-0000-0000-000000000301',
-  user_id: defaultProfile.id,
-  logged_date: '2026-10-24',
-  water_glasses: 6,
-  completed_exercises: ['ex-1'],
-};
-
-const STORAGE_KEYS = {
-  PROFILE: 'materna_postpartum_profile_v3',
-  BABY_LOGS: 'materna_postpartum_baby_logs_v3',
-  MOOD_LOGS: 'materna_postpartum_mood_logs_v3',
-  RECOVERY_LOG: 'materna_postpartum_recovery_log_v3',
-  WAKE_TIMESTAMP: 'materna_postpartum_wake_timestamp_v3',
-};
+function emptyRecovery(userId = '', loggedDate = INITIAL_DATE_PLACEHOLDER): MaternalRecoveryLog {
+  return {
+    id: '',
+    user_id: userId,
+    logged_date: loggedDate,
+    water_glasses: 0,
+    completed_exercises: [],
+  };
+}
 
 const fallbackContextValue: MaternaContextType = {
-  profile: defaultProfile,
-  updateProfile: async () => {},
-  babyLogs: defaultBabyLogs,
+  profile: emptyProfile(),
+  updateProfile: async () => false,
+  babyLogs: [],
   addBabyLog: async () => {},
+  updateBabyLog: async () => {},
   deleteBabyLog: async () => {},
-  moodLogs: defaultMoodLogs,
+  moodLogs: [],
   addMoodLog: async () => {},
-  recoveryLog: defaultRecoveryLog,
+  deleteMoodLog: async () => {},
+  recoveryLog: emptyRecovery(),
+  recoveryHistory: [],
   updateWaterGlasses: async () => {},
   toggleRecoveryExercise: async () => {},
   toggleMilestone: async () => {},
   toggleFavoriteTrack: async () => {},
-  lastWakeTimestamp: '2026-10-24T07:30:00.000Z',
-  recordBabyWakeUp: () => {},
+  growthMeasurements: [],
+  addGrowthMeasurement: async () => {},
+  deleteGrowthMeasurement: async () => {},
+  lastWakeTimestamp: INITIAL_ISO_PLACEHOLDER,
+  recordBabyWakeUp: async () => {},
   isAiChatOpen: false,
   setIsAiChatOpen: () => {},
-  isInitialized: true,
+  isInitialized: false,
   userEmail: null,
   isAuthenticated: false,
+  syncError: null,
+  clearSyncError: () => {},
   signOut: async () => {},
 };
 
 const MaternaContext = createContext<MaternaContextType>(fallbackContextValue);
 
 export function MaternaProvider({ children }: { children: React.ReactNode }) {
-  const [profile, setProfile] = useState<Profile>(defaultProfile);
-  const [babyLogs, setBabyLogs] = useState<BabyLog[]>(defaultBabyLogs);
-  const [moodLogs, setMoodLogs] = useState<MaternalMoodLog[]>(defaultMoodLogs);
-  const [recoveryLog, setRecoveryLog] = useState<MaternalRecoveryLog>(defaultRecoveryLog);
-  const [lastWakeTimestamp, setLastWakeTimestamp] = useState<string>('2026-10-24T07:30:00.000Z');
-  const [isAiChatOpen, setIsAiChatOpen] = useState<boolean>(false);
-  const [isInitialized, setIsInitialized] = useState<boolean>(false);
+  const [profile, setProfile] = useState<Profile>(() => emptyProfile());
+  const [babyLogs, setBabyLogs] = useState<BabyLog[]>([]);
+  const [moodLogs, setMoodLogs] = useState<MaternalMoodLog[]>([]);
+  const [recoveryLog, setRecoveryLog] = useState<MaternalRecoveryLog>(() => emptyRecovery());
+  const [recoveryHistory, setRecoveryHistory] = useState<MaternalRecoveryLog[]>([]);
+  const [growthMeasurements, setGrowthMeasurements] = useState<GrowthMeasurement[]>([]);
+  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
-  const loadSupabaseUserData = useCallback(async (userId: string, email: string | null) => {
-    const supabase = createClient();
-    if (!supabase) return;
+  const supabase = useMemo(() => (isSupabaseConfigured ? createClient() : null), []);
+  const userIdRef = useRef<string | null>(null);
 
-    setUserEmail(email);
-    setIsAuthenticated(true);
+  // Always-current copies for async handlers, so rapid taps never act on stale state.
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+  const babyLogsRef = useRef(babyLogs);
+  babyLogsRef.current = babyLogs;
+  const moodLogsRef = useRef(moodLogs);
+  moodLogsRef.current = moodLogs;
+  const recoveryRef = useRef(recoveryLog);
+  recoveryRef.current = recoveryLog;
+  const growthRef = useRef(growthMeasurements);
+  growthRef.current = growthMeasurements;
 
-    try {
-      // 1. Fetch or initialize user profile
-      const { data: existingProfile } = await (supabase
-        .from('profiles') as any)
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
+  const clearSyncError = useCallback(() => setSyncError(null), []);
 
-      if (existingProfile) {
-        setProfile(existingProfile);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(existingProfile));
-        }
-      } else {
-        const newUserProfile: Profile = {
-          ...defaultProfile,
-          id: userId,
-          created_at: new Date().toISOString(),
-        };
-        await (supabase.from('profiles') as any).upsert({
-          id: userId,
-          full_name: newUserProfile.full_name,
-          baby_name: newUserProfile.baby_name,
-          baby_birth_date: newUserProfile.baby_birth_date,
-        });
-        setProfile(newUserProfile);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(newUserProfile));
-        }
-      }
-
-      // 2. Fetch baby logs
-      const { data: remoteBabyLogs } = await (supabase
-        .from('baby_logs') as any)
-        .select('*')
-        .eq('user_id', userId)
-        .order('timestamp', { ascending: false });
-
-      if (remoteBabyLogs && remoteBabyLogs.length > 0) {
-        setBabyLogs(remoteBabyLogs);
-        const latestSleep = remoteBabyLogs.find((l: BabyLog) => l.log_type === 'sleep');
-        if (latestSleep) {
-          setLastWakeTimestamp(latestSleep.timestamp);
-        }
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEYS.BABY_LOGS, JSON.stringify(remoteBabyLogs));
-        }
-      }
-
-      // 3. Fetch maternal mood logs
-      const { data: remoteMoodLogs } = await (supabase
-        .from('maternal_mood_logs') as any)
-        .select('*')
-        .eq('user_id', userId)
-        .order('logged_date', { ascending: false });
-
-      if (remoteMoodLogs && remoteMoodLogs.length > 0) {
-        setMoodLogs(remoteMoodLogs);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEYS.MOOD_LOGS, JSON.stringify(remoteMoodLogs));
-        }
-      }
-
-      // 4. Fetch today's recovery log
-      const todayStr = getTodayDateString();
-      const { data: remoteRecovery } = await (supabase
-        .from('maternal_recovery_logs') as any)
-        .select('*')
-        .eq('user_id', userId)
-        .eq('logged_date', todayStr)
-        .maybeSingle();
-
-      if (remoteRecovery) {
-        setRecoveryLog(remoteRecovery);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEYS.RECOVERY_LOG, JSON.stringify(remoteRecovery));
-        }
-      }
-    } catch (err) {
-      console.error('Error syncing user data from Supabase:', err);
-    }
+  const resetState = useCallback(() => {
+    userIdRef.current = null;
+    setProfile(emptyProfile());
+    setBabyLogs([]);
+    setMoodLogs([]);
+    setRecoveryLog(emptyRecovery());
+    setRecoveryHistory([]);
+    setGrowthMeasurements([]);
+    setUserEmail(null);
+    setIsAuthenticated(false);
   }, []);
 
-  useEffect(() => {
-    // 1. Hydrate immediately from localStorage for zero-latency UI
-    try {
-      const savedProfile = localStorage.getItem(STORAGE_KEYS.PROFILE);
-      if (savedProfile) {
-        setProfile(JSON.parse(savedProfile));
-      }
+  const getUserId = useCallback(async (): Promise<string | null> => {
+    if (userIdRef.current) return userIdRef.current;
+    if (!supabase) return null;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) userIdRef.current = user.id;
+    return user?.id ?? null;
+  }, [supabase]);
 
-      const savedBaby = localStorage.getItem(STORAGE_KEYS.BABY_LOGS);
-      if (savedBaby) {
-        const parsedBaby: BabyLog[] = JSON.parse(savedBaby);
-        setBabyLogs(parsedBaby);
-      }
-
-      const savedMood = localStorage.getItem(STORAGE_KEYS.MOOD_LOGS);
-      if (savedMood) {
-        setMoodLogs(JSON.parse(savedMood));
-      }
-
-      const savedRecovery = localStorage.getItem(STORAGE_KEYS.RECOVERY_LOG);
-      if (savedRecovery) {
-        const parsedRec: MaternalRecoveryLog = JSON.parse(savedRecovery);
-        if (parsedRec.logged_date === getTodayDateString()) {
-          setRecoveryLog(parsedRec);
-        }
-      }
-
-      const savedWake = localStorage.getItem(STORAGE_KEYS.WAKE_TIMESTAMP);
-      if (savedWake) {
-        setLastWakeTimestamp(savedWake);
-      }
-    } catch (err) {
-      console.warn('Error reading stored postpartum data:', err);
-    } finally {
-      setIsInitialized(true);
-    }
-
-    // 2. Check Supabase Auth session
-    if (isSupabaseConfigured) {
-      const supabase = createClient();
+  const loadUserData = useCallback(
+    async (userId: string, email: string | null) => {
       if (!supabase) return;
+      userIdRef.current = userId;
+      setUserEmail(email);
+      setIsAuthenticated(true);
 
-      supabase.auth.getUser().then(({ data: { user } }) => {
-        if (user) {
-          loadSupabaseUserData(user.id, user.email ?? null);
+      const db = supabase as any;
+      const todayStr = getTodayDateString();
+
+      try {
+        const [profileRes, babyRes, moodRes, recoveryRes, growthRes] = await Promise.all([
+          db.from('profiles').select('*').eq('id', userId).maybeSingle(),
+          db
+            .from('baby_logs')
+            .select('*')
+            .eq('user_id', userId)
+            .order('timestamp', { ascending: false })
+            .limit(500),
+          db
+            .from('maternal_mood_logs')
+            .select('*')
+            .eq('user_id', userId)
+            .order('logged_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(365),
+          db
+            .from('maternal_recovery_logs')
+            .select('*')
+            .eq('user_id', userId)
+            .order('logged_date', { ascending: false })
+            .limit(30),
+          db
+            .from('growth_measurements')
+            .select('*')
+            .eq('user_id', userId)
+            .order('measured_on', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(200),
+        ]);
+
+        const firstError =
+          profileRes.error || babyRes.error || moodRes.error || recoveryRes.error;
+        if (firstError) {
+          console.error('Supabase load error:', firstError);
+          setSyncError('We could not load all of your data. Please refresh and try again.');
         }
-      });
 
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) {
-          loadSupabaseUserData(session.user.id, session.user.email ?? null);
+        // The signup trigger normally creates the profile; create one if it is somehow missing.
+        let loadedProfile: Profile | null = profileRes.data ?? null;
+        if (!loadedProfile && !profileRes.error) {
+          const { data: created } = await db
+            .from('profiles')
+            .upsert({ id: userId })
+            .select('*')
+            .single();
+          loadedProfile = created ?? null;
+        }
+        if (loadedProfile) setProfile(loadedProfile);
+
+        setBabyLogs(babyRes.data ?? []);
+        setMoodLogs(moodRes.data ?? []);
+        const recRows: MaternalRecoveryLog[] = recoveryRes.data ?? [];
+        setRecoveryHistory(recRows);
+        const todayRec = recRows.find((r) => r.logged_date === todayStr);
+        setRecoveryLog(todayRec ?? emptyRecovery(userId, todayStr));
+        // growth_measurements may not exist until the migration has been run
+        if (growthRes.error) {
+          console.warn('growth_measurements not available:', growthRes.error.message);
+          setGrowthMeasurements([]);
         } else {
-          setUserEmail(null);
-          setIsAuthenticated(false);
+          setGrowthMeasurements(growthRes.data ?? []);
         }
+      } catch (err) {
+        console.error('Error syncing user data from Supabase:', err);
+        setSyncError('We could not reach the server. Please check your connection.');
+      }
+    },
+    [supabase]
+  );
+
+  useEffect(() => {
+    if (!supabase) {
+      setIsInitialized(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (user) await loadUserData(user.id, user.email ?? null);
+      if (!cancelled) setIsInitialized(true);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT' || !session?.user) {
+        resetState();
+        return;
+      }
+      // Only (re)load on a real sign-in as a different user; ignore token refreshes and
+      // tab-focus events that would otherwise refetch everything and clobber in-flight edits.
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        if (userIdRef.current !== session.user.id) {
+          await loadUserData(session.user.id, session.user.email ?? null);
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [supabase, loadUserData, resetState]);
+
+  // ---------- Profile ----------
+
+  const updateProfile = async (updates: Partial<Profile>): Promise<boolean> => {
+    const { id: _ignoredId, created_at: _ignoredCreated, ...fields } = updates;
+    void _ignoredId;
+    void _ignoredCreated;
+
+    const previous = profileRef.current;
+    const optimistic = { ...previous, ...fields };
+    profileRef.current = optimistic;
+    setProfile(optimistic);
+
+    if (!supabase) return false;
+    try {
+      const userId = await getUserId();
+      if (!userId) throw new Error('Not signed in');
+      const { error } = await (supabase as any)
+        .from('profiles')
+        .upsert({ id: userId, ...fields, updated_at: new Date().toISOString() });
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      console.error('Supabase profile update failed:', e);
+      // Roll back only the fields we changed, in case other updates landed meanwhile
+      const rolled = { ...profileRef.current };
+      (Object.keys(fields) as (keyof Profile)[]).forEach((k) => {
+        (rolled as any)[k] = previous[k];
       });
-
-      return () => {
-        subscription.unsubscribe();
-      };
+      profileRef.current = rolled;
+      setProfile(rolled);
+      setSyncError('Your changes could not be saved. Please try again.');
+      return false;
     }
-  }, [loadSupabaseUserData]);
-
-  const updateProfile = async (updates: Partial<Profile>) => {
-    const updated = { ...profile, ...updates };
-    setProfile(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(updated));
-    }
-
-    if (isSupabaseConfigured) {
-      const supabase = createClient();
-      if (supabase) {
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            const payload: Record<string, any> = {
-              id: user.id,
-              full_name: updated.full_name,
-              baby_name: updated.baby_name,
-              baby_birth_date: updated.baby_birth_date,
-              primary_focus: updated.primary_focus,
-              completed_milestones: updated.completed_milestones,
-              favorite_tracks: updated.favorite_tracks,
-              nap_target: updated.nap_target,
-              baby_weight_lbs: updated.baby_weight_lbs,
-              baby_length_in: updated.baby_length_in,
-              baby_head_in: updated.baby_head_in,
-              updated_at: new Date().toISOString(),
-            };
-            const { error } = await (supabase.from('profiles') as any).upsert(payload);
-            if (error) {
-              // Fallback if optional columns haven't been migrated yet
-              await (supabase.from('profiles') as any).upsert({
-                id: user.id,
-                full_name: updated.full_name,
-                baby_name: updated.baby_name,
-                baby_birth_date: updated.baby_birth_date,
-                updated_at: new Date().toISOString(),
-              });
-            }
-          }
-        } catch (e) {
-          console.error('Supabase profile update failed:', e);
-        }
-      }
-    }
-  };
-
-  const addBabyLog = async (type: BabyLogType, details: BabyLogDetails) => {
-    const nowIso = new Date().toISOString();
-    const newEntry: BabyLog = {
-      id: generateUuid(),
-      user_id: profile.id,
-      log_type: type,
-      details,
-      timestamp: nowIso,
-    };
-    const updated = [newEntry, ...babyLogs];
-    setBabyLogs(updated);
-
-    if (type === 'sleep') {
-      setLastWakeTimestamp(nowIso);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEYS.WAKE_TIMESTAMP, nowIso);
-      }
-    }
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.BABY_LOGS, JSON.stringify(updated));
-    }
-
-    if (isSupabaseConfigured) {
-      const supabase = createClient();
-      if (supabase) {
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            await (supabase.from('baby_logs') as any).insert({
-              ...newEntry,
-              user_id: user.id,
-            });
-          }
-        } catch (e) {
-          console.error('Supabase baby log insert failed:', e);
-        }
-      }
-    }
-  };
-
-  const deleteBabyLog = async (id: string) => {
-    const updated = babyLogs.filter((l) => l.id !== id);
-    setBabyLogs(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.BABY_LOGS, JSON.stringify(updated));
-    }
-
-    if (isSupabaseConfigured) {
-      const supabase = createClient();
-      if (supabase) {
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            await (supabase.from('baby_logs') as any)
-              .delete()
-              .eq('id', id)
-              .eq('user_id', user.id);
-          }
-        } catch (e) {
-          console.error('Supabase baby log delete failed:', e);
-        }
-      }
-    }
-  };
-
-  const addMoodLog = async (score: number, tags: string[], notes?: string) => {
-    const todayStr = getTodayDateString();
-    const newEntry: MaternalMoodLog = {
-      id: generateUuid(),
-      user_id: profile.id,
-      score,
-      tags,
-      notes,
-      logged_date: todayStr,
-      created_at: new Date().toISOString(),
-    };
-    const updated = [newEntry, ...moodLogs];
-    setMoodLogs(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.MOOD_LOGS, JSON.stringify(updated));
-    }
-
-    if (isSupabaseConfigured) {
-      const supabase = createClient();
-      if (supabase) {
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            await (supabase.from('maternal_mood_logs') as any).insert({
-              ...newEntry,
-              user_id: user.id,
-            });
-          }
-        } catch (e) {
-          console.error('Supabase mood log insert failed:', e);
-        }
-      }
-    }
-  };
-
-  const syncRecoveryLog = async (updatedRecovery: MaternalRecoveryLog) => {
-    setRecoveryLog(updatedRecovery);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.RECOVERY_LOG, JSON.stringify(updatedRecovery));
-    }
-
-    if (isSupabaseConfigured) {
-      const supabase = createClient();
-      if (supabase) {
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            await (supabase.from('maternal_recovery_logs') as any).upsert(
-              {
-                user_id: user.id,
-                logged_date: updatedRecovery.logged_date,
-                water_glasses: updatedRecovery.water_glasses,
-                completed_exercises: updatedRecovery.completed_exercises,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: 'user_id,logged_date' }
-            );
-          }
-        } catch (e) {
-          console.error('Supabase recovery log upsert failed:', e);
-        }
-      }
-    }
-  };
-
-  const updateWaterGlasses = async (glasses: number) => {
-    const clamped = Math.max(0, Math.min(15, glasses));
-    await syncRecoveryLog({
-      ...recoveryLog,
-      logged_date: getTodayDateString(),
-      water_glasses: clamped,
-    });
-  };
-
-  const toggleRecoveryExercise = async (exerciseId: string) => {
-    const current = recoveryLog.completed_exercises || [];
-    const next = current.includes(exerciseId)
-      ? current.filter((id) => id !== exerciseId)
-      : [...current, exerciseId];
-    await syncRecoveryLog({
-      ...recoveryLog,
-      logged_date: getTodayDateString(),
-      completed_exercises: next,
-    });
   };
 
   const toggleMilestone = async (milestoneId: string) => {
-    const current = profile.completed_milestones || ['m-1', 'm-2'];
+    const current = profileRef.current.completed_milestones || [];
     const next = current.includes(milestoneId)
       ? current.filter((id) => id !== milestoneId)
       : [...current, milestoneId];
@@ -571,30 +353,302 @@ export function MaternaProvider({ children }: { children: React.ReactNode }) {
   };
 
   const toggleFavoriteTrack = async (trackId: string) => {
-    const current = profile.favorite_tracks || [];
+    const current = profileRef.current.favorite_tracks || [];
     const next = current.includes(trackId)
       ? current.filter((id) => id !== trackId)
       : [...current, trackId];
     await updateProfile({ favorite_tracks: next });
   };
 
-  const recordBabyWakeUp = () => {
+  // ---------- Baby logs ----------
+
+  const addBabyLog = async (type: BabyLogType, details: BabyLogDetails) => {
+    const userId = await getUserId();
+    if (!userId || !supabase) {
+      setSyncError('Please sign in to save logs.');
+      return;
+    }
+
     const nowIso = new Date().toISOString();
-    setLastWakeTimestamp(nowIso);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.WAKE_TIMESTAMP, nowIso);
+    const entry: BabyLog = {
+      id: generateUuid(),
+      user_id: userId,
+      log_type: type,
+      details,
+      timestamp: nowIso,
+    };
+
+    setBabyLogs((prev) => [entry, ...prev]);
+
+    const { error } = await (supabase as any).from('baby_logs').insert(entry);
+    if (error) {
+      console.error('Supabase baby log insert failed:', error);
+      setBabyLogs((prev) => prev.filter((l) => l.id !== entry.id));
+      setSyncError('That log could not be saved. Please try again.');
+      return;
+    }
+
+    // Logging sleep also resets the wake clock
+    if (type === 'sleep') {
+      await updateProfile({ last_wake_at: nowIso });
     }
   };
 
-  const signOut = async () => {
-    if (isSupabaseConfigured) {
-      const supabase = createClient();
-      if (supabase) {
-        await supabase.auth.signOut();
-      }
+  const updateBabyLog = async (id: string, details: BabyLogDetails) => {
+    if (!supabase) return;
+    const previous = babyLogsRef.current.find((l) => l.id === id);
+    if (!previous) return;
+
+    setBabyLogs((prev) => prev.map((l) => (l.id === id ? { ...l, details } : l)));
+
+    const userId = await getUserId();
+    const { error } = await (supabase as any)
+      .from('baby_logs')
+      .update({ details })
+      .eq('id', id)
+      .eq('user_id', userId ?? '');
+
+    if (error) {
+      console.error('Supabase baby log update failed:', error);
+      setBabyLogs((prev) => prev.map((l) => (l.id === id ? previous : l)));
+      setSyncError('That log could not be updated. Please try again.');
     }
-    setUserEmail(null);
-    setIsAuthenticated(false);
+  };
+
+  const deleteBabyLog = async (id: string) => {
+    if (!supabase) return;
+    const removed = babyLogsRef.current.find((l) => l.id === id);
+    setBabyLogs((prev) => prev.filter((l) => l.id !== id));
+
+    const userId = await getUserId();
+    const { error } = await (supabase as any)
+      .from('baby_logs')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId ?? '');
+    if (error) {
+      console.error('Supabase baby log delete failed:', error);
+      if (removed) {
+        setBabyLogs((prev) =>
+          [removed, ...prev].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+        );
+      }
+      setSyncError('That log could not be deleted. Please try again.');
+    }
+  };
+
+  // ---------- Mood ----------
+
+  const addMoodLog = async (score: number, tags: string[], notes?: string) => {
+    const userId = await getUserId();
+    if (!userId || !supabase) {
+      setSyncError('Please sign in to save reflections.');
+      return;
+    }
+
+    const entry: MaternalMoodLog = {
+      id: generateUuid(),
+      user_id: userId,
+      score,
+      tags,
+      notes,
+      logged_date: getTodayDateString(),
+      created_at: new Date().toISOString(),
+    };
+
+    setMoodLogs((prev) => [entry, ...prev]);
+
+    const { error } = await (supabase as any).from('maternal_mood_logs').insert(entry);
+    if (error) {
+      console.error('Supabase mood log insert failed:', error);
+      setMoodLogs((prev) => prev.filter((m) => m.id !== entry.id));
+      setSyncError('Your reflection could not be saved. Please try again.');
+    }
+  };
+
+  const deleteMoodLog = async (id: string) => {
+    if (!supabase) return;
+    const removed = moodLogsRef.current.find((m) => m.id === id);
+    setMoodLogs((prev) => prev.filter((m) => m.id !== id));
+
+    const userId = await getUserId();
+    const { error } = await (supabase as any)
+      .from('maternal_mood_logs')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId ?? '');
+
+    if (error) {
+      console.error('Supabase mood log delete failed:', error);
+      if (removed) {
+        setMoodLogs((prev) =>
+          [removed, ...prev].sort((a, b) => b.logged_date.localeCompare(a.logged_date))
+        );
+      }
+      setSyncError('Your reflection could not be deleted. Please try again.');
+    }
+  };
+
+  // ---------- Recovery & hydration ----------
+
+  const syncRecoveryLog = async (next: MaternalRecoveryLog) => {
+    const previous = recoveryRef.current;
+    recoveryRef.current = next;
+    setRecoveryLog(next);
+
+    if (!supabase) return;
+    const userId = await getUserId();
+    if (!userId) {
+      recoveryRef.current = previous;
+      setRecoveryLog(previous);
+      setSyncError('Please sign in to save progress.');
+      return;
+    }
+
+    const { data, error } = await (supabase as any)
+      .from('maternal_recovery_logs')
+      .upsert(
+        {
+          user_id: userId,
+          logged_date: next.logged_date,
+          water_glasses: next.water_glasses,
+          completed_exercises: next.completed_exercises,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,logged_date' }
+      )
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('Supabase recovery log upsert failed:', error);
+      recoveryRef.current = previous;
+      setRecoveryLog(previous);
+      setSyncError('Your progress could not be saved. Please try again.');
+    } else if (data) {
+      // adopt the real row id without clobbering newer local edits
+      setRecoveryLog((cur) => (cur.logged_date === data.logged_date ? { ...cur, id: data.id } : cur));
+      setRecoveryHistory((prev) => {
+        const filtered = prev.filter((r) => r.logged_date !== data.logged_date);
+        return [data, ...filtered].sort((a, b) => b.logged_date.localeCompare(a.logged_date));
+      });
+    }
+  };
+
+  const currentRecoveryForToday = (): MaternalRecoveryLog => {
+    const cur = recoveryRef.current;
+    const today = getTodayDateString();
+    return cur.logged_date === today
+      ? cur
+      : { ...emptyRecovery(cur.user_id || userIdRef.current || ''), logged_date: today };
+  };
+
+  const updateWaterGlasses = async (glasses: number) => {
+    const clamped = Math.max(0, Math.min(15, glasses));
+    await syncRecoveryLog({ ...currentRecoveryForToday(), water_glasses: clamped });
+  };
+
+  const toggleRecoveryExercise = async (exerciseId: string) => {
+    const base = currentRecoveryForToday();
+    const current = base.completed_exercises || [];
+    const next = current.includes(exerciseId)
+      ? current.filter((id) => id !== exerciseId)
+      : [...current, exerciseId];
+    await syncRecoveryLog({ ...base, completed_exercises: next });
+  };
+
+  // ---------- Growth ----------
+
+  const addGrowthMeasurement = async (m: {
+    weight_lbs?: number | null;
+    length_in?: number | null;
+    head_in?: number | null;
+  }) => {
+    const userId = await getUserId();
+    if (!userId || !supabase) {
+      setSyncError('Please sign in to save measurements.');
+      return;
+    }
+
+    const entry: GrowthMeasurement = {
+      id: generateUuid(),
+      user_id: userId,
+      measured_on: getTodayDateString(),
+      weight_lbs: m.weight_lbs ?? null,
+      length_in: m.length_in ?? null,
+      head_in: m.head_in ?? null,
+      created_at: new Date().toISOString(),
+    };
+
+    setGrowthMeasurements((prev) => [entry, ...prev]);
+
+    const { error } = await (supabase as any).from('growth_measurements').insert(entry);
+    if (error) {
+      console.error('Supabase growth insert failed:', error);
+      setGrowthMeasurements((prev) => prev.filter((g) => g.id !== entry.id));
+      setSyncError('Measurements could not be saved. Have you run the latest database migration?');
+      return;
+    }
+
+    // Keep the "latest" snapshot on the profile for quick display
+    await updateProfile({
+      baby_weight_lbs: entry.weight_lbs ?? profileRef.current.baby_weight_lbs ?? null,
+      baby_length_in: entry.length_in ?? profileRef.current.baby_length_in ?? null,
+      baby_head_in: entry.head_in ?? profileRef.current.baby_head_in ?? null,
+    });
+  };
+
+  const deleteGrowthMeasurement = async (id: string) => {
+    if (!supabase) return;
+    const removed = growthRef.current.find((g) => g.id === id);
+    const remaining = growthRef.current.filter((g) => g.id !== id);
+    setGrowthMeasurements(remaining);
+
+    const userId = await getUserId();
+    const { error } = await (supabase as any)
+      .from('growth_measurements')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId ?? '');
+
+    if (error) {
+      console.error('Supabase growth delete failed:', error);
+      if (removed) {
+        setGrowthMeasurements((prev) =>
+          [removed, ...prev].sort((a, b) => b.measured_on.localeCompare(a.measured_on))
+        );
+      }
+      setSyncError('That measurement could not be deleted. Please try again.');
+      return;
+    }
+
+    const latest = remaining[0];
+    await updateProfile({
+      baby_weight_lbs: latest?.weight_lbs ?? null,
+      baby_length_in: latest?.length_in ?? null,
+      baby_head_in: latest?.head_in ?? null,
+    });
+  };
+
+  // ---------- Wake state ----------
+
+  const lastWakeTimestamp = useMemo(() => {
+    if (profile.last_wake_at) return profile.last_wake_at;
+    const latestSleep = babyLogs.find((l) => l.log_type === 'sleep');
+    return latestSleep?.timestamp ?? profile.created_at ?? INITIAL_ISO_PLACEHOLDER;
+  }, [profile.last_wake_at, profile.created_at, babyLogs]);
+
+  const recordBabyWakeUp = async () => {
+    await updateProfile({ last_wake_at: new Date().toISOString() });
+  };
+
+  // ---------- Auth ----------
+
+  const signOut = async () => {
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
+    resetState();
   };
 
   return (
@@ -604,14 +658,20 @@ export function MaternaProvider({ children }: { children: React.ReactNode }) {
         updateProfile,
         babyLogs,
         addBabyLog,
+        updateBabyLog,
         deleteBabyLog,
         moodLogs,
         addMoodLog,
+        deleteMoodLog,
         recoveryLog,
+        recoveryHistory,
         updateWaterGlasses,
         toggleRecoveryExercise,
         toggleMilestone,
         toggleFavoriteTrack,
+        growthMeasurements,
+        addGrowthMeasurement,
+        deleteGrowthMeasurement,
         lastWakeTimestamp,
         recordBabyWakeUp,
         isAiChatOpen,
@@ -619,6 +679,8 @@ export function MaternaProvider({ children }: { children: React.ReactNode }) {
         isInitialized,
         userEmail,
         isAuthenticated,
+        syncError,
+        clearSyncError,
         signOut,
       }}
     >

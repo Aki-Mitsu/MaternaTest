@@ -1,64 +1,99 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Baby, CheckCircle2, Edit3, Check } from 'lucide-react';
+import confetti from 'canvas-confetti';
+import { Baby, CheckCircle2, Edit3, Check, History, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useMaterna } from '@/lib/context/MaternaContext';
 import { calculatePostpartumAge } from '@/lib/utils';
 import { BABY_52_WEEKS } from '@/lib/data/babyMilestones52';
 
+/**
+ * Estimates an infant growth percentile (5th–99th) from the ratio between the
+ * logged value and the WHO median for the baby's current week.
+ */
+function estimatePercentile(value: number | null | undefined, median: number, cv = 0.12): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value) || median <= 0) {
+    return null;
+  }
+  const z = (value - median) / (median * cv);
+  // Logistic approximation of standard normal CDF
+  const cdf = 1 / (1 + Math.exp(-1.702 * z));
+  return Math.min(99, Math.max(1, Math.round(cdf * 100)));
+}
+
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+
 export function NewbornGrowthMilestones() {
-  const { profile, updateProfile, toggleMilestone } = useMaterna();
+  const {
+    profile,
+    growthMeasurements,
+    addGrowthMeasurement,
+    deleteGrowthMeasurement,
+    toggleMilestone,
+  } = useMaterna();
   const postData = calculatePostpartumAge(profile.baby_birth_date);
-  const babyName = profile.baby_name || 'Leo';
+  const babyName = profile.baby_name || 'Baby';
   const currentWeek = Math.min(Math.max(postData.weeks || 6, 1), 52);
 
   const weekReference =
     BABY_52_WEEKS.find((w) => w.week === currentWeek) || BABY_52_WEEKS[5];
 
-  const displayWeight = profile.baby_weight_lbs ?? weekReference.weightLbs;
-  const displayLength = profile.baby_length_in ?? weekReference.lengthInches;
-  const displayHead = profile.baby_head_in ?? weekReference.headCircInches;
+  const latestLogged = growthMeasurements[0];
+  const rawWeight = profile.baby_weight_lbs ?? latestLogged?.weight_lbs ?? null;
+  const rawLength = profile.baby_length_in ?? latestLogged?.length_in ?? null;
+  const rawHead = profile.baby_head_in ?? latestLogged?.head_in ?? null;
+
+  const displayWeight = rawWeight ?? weekReference.weightLbs;
+  const displayLength = rawLength ?? weekReference.lengthInches;
+  const displayHead = rawHead ?? weekReference.headCircInches;
+
+  const weightPct = estimatePercentile(rawWeight, weekReference.weightLbs, 0.13);
+  const lengthPct = estimatePercentile(rawLength, weekReference.lengthInches, 0.04);
+  const headPct = estimatePercentile(rawHead, weekReference.headCircInches, 0.035);
 
   const [isEditingStats, setIsEditingStats] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [weightInput, setWeightInput] = useState(String(displayWeight));
   const [lengthInput, setLengthInput] = useState(String(displayLength));
   const [headInput, setHeadInput] = useState(String(displayHead));
 
-  const completedMilestones = profile.completed_milestones || ['m-1', 'm-2'];
+  const completedMilestones = profile.completed_milestones || [];
 
-  const milestones = [
-    {
-      id: 'm-1',
-      title: 'First Social Smile',
-      timing: 'Week 4 - 6',
-      desc: 'Smiling responsively when you talk gently or smile up close.',
-    },
-    {
-      id: 'm-2',
-      title: 'Head Lifting (Tummy Time)',
-      timing: 'Week 4 - 8',
-      desc: 'Briefly holds head at a 45-degree angle while on belly.',
-    },
-    {
-      id: 'm-3',
-      title: 'Visual Tracking (180°)',
-      timing: 'Week 6 - 8',
-      desc: 'Follows colorful toys or your face smoothly from side to side.',
-    },
-    {
-      id: 'm-4',
-      title: 'Coos & Vowel Sounds',
-      timing: 'Week 6 - 9',
-      desc: 'Produces happy "oohs" and "aahs" when engaged.',
-    },
-  ];
+  // Dynamically show the 4 weekly milestones for the baby's current month
+  const currentMonth = weekReference.month;
+  const monthWeeks = BABY_52_WEEKS.filter((w) => w.month === currentMonth).slice(0, 4);
+  const milestones = monthWeeks.map((w) => ({
+    id: `w-${w.week}`,
+    title: w.title,
+    timing: `Week ${w.week} • ${w.category}`,
+    desc: w.summary,
+  }));
+
+  const handleToggleMilestone = async (id: string, currentlyDone: boolean) => {
+    await toggleMilestone(id);
+    if (!currentlyDone && typeof window !== 'undefined') {
+      try {
+        confetti({
+          particleCount: 45,
+          spread: 60,
+          origin: { y: 0.7 },
+        });
+      } catch {
+        // Ignore confetti errors in non-canvas environments
+      }
+    }
+  };
 
   const handleSaveStats = async (e: React.FormEvent) => {
     e.preventDefault();
-    await updateProfile({
-      baby_weight_lbs: parseFloat(weightInput) || weekReference.weightLbs,
-      baby_length_in: parseFloat(lengthInput) || weekReference.lengthInches,
-      baby_head_in: parseFloat(headInput) || weekReference.headCircInches,
+    await addGrowthMeasurement({
+      weight_lbs: parseFloat(weightInput) || weekReference.weightLbs,
+      length_in: parseFloat(lengthInput) || weekReference.lengthInches,
+      head_in: parseFloat(headInput) || weekReference.headCircInches,
     });
     setIsEditingStats(false);
   };
@@ -73,7 +108,7 @@ export function NewbornGrowthMilestones() {
           </div>
           <div>
             <div className="text-[10px] font-bold tracking-wider text-[#8F7292] uppercase">
-              NEWBORN DEVELOPMENT
+              MONTH {currentMonth} • WEEK {currentWeek} DEVELOPMENT
             </div>
             <h2 className="font-serif text-xl font-bold text-[#2A162B] leading-tight">
               {babyName}&apos;s Milestones
@@ -146,23 +181,66 @@ export function NewbornGrowthMilestones() {
             <div className="text-[10px] font-semibold text-[#8C728C]">Weight</div>
             <div className="font-serif text-base font-bold text-[#2A162B]">{displayWeight} lbs</div>
             <div className="text-[9px] text-[#9E4875] font-bold">
-              {profile.baby_weight_lbs ? 'Logged' : `Wk ${currentWeek} Avg`}
+              {weightPct !== null ? `${ordinal(weightPct)} %ile` : `Wk ${currentWeek} Avg`}
             </div>
           </div>
           <div className="text-center border-x border-[#E8D7E7]">
             <div className="text-[10px] font-semibold text-[#8C728C]">Length</div>
             <div className="font-serif text-base font-bold text-[#2A162B]">{displayLength} in</div>
             <div className="text-[9px] text-[#9E4875] font-bold">
-              {profile.baby_length_in ? 'Logged' : `Wk ${currentWeek} Avg`}
+              {lengthPct !== null ? `${ordinal(lengthPct)} %ile` : `Wk ${currentWeek} Avg`}
             </div>
           </div>
           <div className="text-center">
             <div className="text-[10px] font-semibold text-[#8C728C]">Head Circ.</div>
             <div className="font-serif text-base font-bold text-[#2A162B]">{displayHead} in</div>
             <div className="text-[9px] text-[#9E4875] font-bold">
-              {profile.baby_head_in ? 'Logged' : `Wk ${currentWeek} Avg`}
+              {headPct !== null ? `${ordinal(headPct)} %ile` : `Wk ${currentWeek} Avg`}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Collapsible Growth History Drawer */}
+      {growthMeasurements.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowHistory((v) => !v)}
+            className="w-full flex items-center justify-between text-[11px] font-bold text-[#7B5D7E] hover:text-[#2A162B] px-1 py-1 cursor-pointer transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <History className="w-3.5 h-3.5 text-[#9E4875]" />
+              <span>Growth Log History ({growthMeasurements.length})</span>
+            </span>
+            {showHistory ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+
+          {showHistory && (
+            <div className="mt-1.5 space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              {growthMeasurements.slice(0, 10).map((g) => (
+                <div
+                  key={g.id}
+                  className="flex items-center justify-between bg-[#FAF5FA] px-3 py-2 rounded-xl border border-[#EFE2EE] text-[11px]"
+                >
+                  <div className="text-[#2A162B] font-semibold">
+                    <span className="text-[#8C728C] mr-2">{g.measured_on}</span>
+                    <span>
+                      {g.weight_lbs ?? '—'} lbs • {g.length_in ?? '—'} in • {g.head_in ?? '—'} in
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => deleteGrowthMeasurement(g.id)}
+                    aria-label="Delete measurement"
+                    className="text-[#A888AA] hover:text-[#C93B63] transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -173,7 +251,7 @@ export function NewbornGrowthMilestones() {
           return (
             <div
               key={item.id}
-              onClick={() => toggleMilestone(item.id)}
+              onClick={() => handleToggleMilestone(item.id, isDone)}
               className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
                 isDone
                   ? 'bg-[#F9EFF6] border-[#EBD6E9]'

@@ -18,6 +18,7 @@ export default function RecoveryPage() {
   const {
     profile,
     recoveryLog,
+    recoveryHistory,
     updateWaterGlasses,
     toggleRecoveryExercise,
     setIsAiChatOpen,
@@ -26,8 +27,8 @@ export default function RecoveryPage() {
   const postData = calculatePostpartumAge(profile.baby_birth_date);
   const [activeTab, setActiveTab] = useState<'physical' | 'nutrition'>('physical');
 
-  const waterGlasses = recoveryLog.water_glasses ?? 6;
-  const completedExercises = recoveryLog.completed_exercises ?? ['ex-1'];
+  const waterGlasses = recoveryLog.water_glasses ?? 0;
+  const completedExercises = recoveryLog.completed_exercises ?? [];
 
   // Dynamic recovery milestones based on actual postpartum week
   const weeks = postData.weeks;
@@ -298,7 +299,7 @@ export default function RecoveryPage() {
                   <button
                     key={i}
                     type="button"
-                    onClick={() => updateWaterGlasses(i + 1)}
+                    onClick={() => updateWaterGlasses(waterGlasses === i + 1 ? i : i + 1)}
                     className={`flex-1 h-10 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
                       i < waterGlasses
                         ? 'bg-[#9E4875] text-white shadow-2xs'
@@ -309,6 +310,27 @@ export default function RecoveryPage() {
                   </button>
                 ))}
               </div>
+
+              {recoveryHistory.length > 0 && (
+                <div className="pt-3 border-t border-[#F1E6F0] space-y-2">
+                  <div className="text-[11px] font-bold text-[#7A5E7C]">
+                    Recent Daily Recovery &amp; Hydration History
+                  </div>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                    {recoveryHistory.slice(0, 7).map((row) => (
+                      <div
+                        key={row.id || row.logged_date}
+                        className="flex items-center justify-between bg-[#FAF5FA] px-3 py-2 rounded-xl border border-[#EFE2EE] text-[11px]"
+                      >
+                        <span className="font-semibold text-[#2A162B]">{row.logged_date}</span>
+                        <span className="text-[#785E7B] font-medium">
+                          {row.water_glasses} / 10 glasses • {(row.completed_exercises || []).length} exercises
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
 
             {/* AI Prompt Card */}

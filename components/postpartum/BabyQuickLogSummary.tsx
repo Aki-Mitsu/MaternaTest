@@ -1,14 +1,16 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Droplets, Baby, Moon, Plus, Check, Clock, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Droplets, Baby, Moon, Plus, Check, Clock, Trash2, Edit3, ChevronDown, ChevronUp } from 'lucide-react';
 import { useMaterna } from '@/lib/context/MaternaContext';
 import { formatTimeAgo } from '@/lib/utils';
+import type { BabyLog, BabyLogDetails } from '@/types/database';
 
 export function BabyQuickLogSummary() {
-  const { profile, babyLogs, addBabyLog, deleteBabyLog } = useMaterna();
+  const { profile, babyLogs, addBabyLog, updateBabyLog, deleteBabyLog } = useMaterna();
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<'feed' | 'diaper' | 'sleep' | null>(null);
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [showTimeline, setShowTimeline] = useState<boolean>(false);
   const [nowMs, setNowMs] = useState<number | undefined>(undefined);
 
@@ -19,7 +21,7 @@ export function BabyQuickLogSummary() {
   const [diaperType, setDiaperType] = useState<'wet' | 'dirty' | 'mixed'>('wet');
   const [sleepDuration, setSleepDuration] = useState<number>(90);
 
-  const babyName = profile.baby_name || 'Leo';
+  const babyName = profile.baby_name || 'Baby';
   const [todayString, setTodayString] = useState<string>('');
 
   useEffect(() => {
@@ -52,27 +54,67 @@ export function BabyQuickLogSummary() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleQuickLog = (type: 'feed' | 'diaper' | 'sleep', details: any, label: string) => {
+  const handleQuickLog = (type: 'feed' | 'diaper' | 'sleep', details: BabyLogDetails, label: string) => {
     addBabyLog(type, details);
     triggerToast(label);
   };
 
+  const openEditLog = (log: BabyLog) => {
+    setEditingLogId(log.id);
+    setActiveModal(log.log_type);
+    if (log.log_type === 'feed') {
+      if (log.details.side === 'left' || log.details.side === 'right') {
+        setFeedType(log.details.side);
+        setFeedDuration(log.details.duration_mins || 20);
+      } else {
+        setFeedType('bottle');
+        setBottleAmount(log.details.amount_ml || 120);
+      }
+    } else if (log.log_type === 'diaper') {
+      const t = log.details.type;
+      setDiaperType(t === 'dirty' || t === 'mixed' ? t : 'wet');
+    } else if (log.log_type === 'sleep') {
+      setSleepDuration(log.details.duration_mins || 90);
+    }
+  };
+
   const handleSaveModal = () => {
     if (activeModal === 'feed') {
-      if (feedType === 'bottle') {
-        addBabyLog('feed', { bottle_type: 'formula', amount_ml: bottleAmount, duration_mins: 15 });
-        triggerToast(`Logged bottle feed (${bottleAmount}ml)`);
+      const details: BabyLogDetails =
+        feedType === 'bottle'
+          ? { bottle_type: 'formula', amount_ml: bottleAmount, duration_mins: 15 }
+          : { side: feedType, duration_mins: feedDuration };
+      if (editingLogId) {
+        updateBabyLog(editingLogId, details);
+        triggerToast('Updated feed log');
       } else {
-        addBabyLog('feed', { side: feedType, duration_mins: feedDuration });
-        triggerToast(`Logged nursing (${feedType} breast, ${feedDuration}m)`);
+        addBabyLog('feed', details);
+        triggerToast(
+          feedType === 'bottle'
+            ? `Logged bottle feed (${bottleAmount}ml)`
+            : `Logged nursing (${feedType} breast, ${feedDuration}m)`
+        );
       }
     } else if (activeModal === 'diaper') {
-      addBabyLog('diaper', { type: diaperType });
-      triggerToast(`Logged ${diaperType} diaper`);
+      const details: BabyLogDetails = { type: diaperType };
+      if (editingLogId) {
+        updateBabyLog(editingLogId, details);
+        triggerToast('Updated diaper log');
+      } else {
+        addBabyLog('diaper', details);
+        triggerToast(`Logged ${diaperType} diaper`);
+      }
     } else if (activeModal === 'sleep') {
-      addBabyLog('sleep', { duration_mins: sleepDuration, notes: 'Crib nap' });
-      triggerToast(`Logged nap (${sleepDuration} mins)`);
+      const details: BabyLogDetails = { duration_mins: sleepDuration, notes: 'Crib nap' };
+      if (editingLogId) {
+        updateBabyLog(editingLogId, details);
+        triggerToast('Updated sleep log');
+      } else {
+        addBabyLog('sleep', details);
+        triggerToast(`Logged nap (${sleepDuration} mins)`);
+      }
     }
+    setEditingLogId(null);
     setActiveModal(null);
   };
 
@@ -257,6 +299,14 @@ export function BabyQuickLogSummary() {
                   <span className="text-[10px] text-[#8C728C]">{formatTimeAgo(log.timestamp, nowMs)}</span>
                   <button
                     type="button"
+                    onClick={() => openEditLog(log)}
+                    aria-label="Edit log"
+                    className="text-[#A888AA] hover:text-[#784776] transition-colors cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       deleteBabyLog(log.id);
                       triggerToast('Log entry removed');
@@ -287,10 +337,13 @@ export function BabyQuickLogSummary() {
           <div className="bg-white rounded-[32px] max-w-sm w-full p-6 border border-[#ECE0EC] shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between pb-2 border-b border-[#F2E8F1]">
               <h3 className="font-serif font-bold text-base text-[#2A162B] capitalize">
-                Log Baby {activeModal}
+                {editingLogId ? `Edit Baby ${activeModal}` : `Log Baby ${activeModal}`}
               </h3>
               <button
-                onClick={() => setActiveModal(null)}
+                onClick={() => {
+                  setEditingLogId(null);
+                  setActiveModal(null);
+                }}
                 className="text-xs text-[#8A6F8B] hover:text-[#2A162B] cursor-pointer"
               >
                 Cancel

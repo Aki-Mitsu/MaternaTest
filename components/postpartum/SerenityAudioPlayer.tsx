@@ -19,8 +19,9 @@ interface Track {
 export function SerenityAudioPlayer() {
   const { profile, toggleFavoriteTrack } = useMaterna();
   const [isPlaying, setIsPlaying] = useState(false);
-  const [activeTrack, setActiveTrack] = useState<string>('t-1');
+  const [selectedTrack, setSelectedTrack] = useState<string | null>(null);
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
+  const activeTrack = selectedTrack ?? profile.favorite_tracks?.[0] ?? 't-1';
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
@@ -80,7 +81,7 @@ export function SerenityAudioPlayer() {
   ];
 
   const currentTrack = tracks.find((t) => t.id === activeTrack) || tracks[0];
-  const favoriteTracks = profile.favorite_tracks || ['t-1'];
+  const favoriteTracks = profile.favorite_tracks || [];
   const isFavorited = favoriteTracks.includes(currentTrack.id);
 
   const stopAudioEngine = useCallback(() => {
@@ -198,7 +199,7 @@ export function SerenityAudioPlayer() {
     if (activeTrack === id) {
       setIsPlaying(!isPlaying);
     } else {
-      setActiveTrack(id);
+      setSelectedTrack(id);
       setCurrentTimeSec(0);
       setIsPlaying(true);
     }
@@ -347,8 +348,11 @@ export function SerenityAudioPlayer() {
                     <LotusIcon className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className={`text-xs font-bold ${isSelected ? 'text-[#9E4875]' : 'text-[#2C182D]'}`}>
-                      {track.title}
+                    <div className={`text-xs font-bold flex items-center gap-1.5 ${isSelected ? 'text-[#9E4875]' : 'text-[#2C182D]'}`}>
+                      <span>{track.title}</span>
+                      {favoriteTracks.includes(track.id) && (
+                        <Heart className="w-3 h-3 fill-[#E888B4] text-[#E888B4]" />
+                      )}
                     </div>
                     <div className="text-[10px] text-[#8C728C] flex items-center gap-1">
                       <span>{track.duration} mins</span>

@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, ShieldCheck, Mail, Lock, User, AlertCircle, CheckCircle2, Sparkles } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Mail, Lock, User, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useMaterna } from '@/lib/context/MaternaContext';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { LotusIcon } from '@/components/shared/LotusIcon';
@@ -21,17 +20,6 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  const handleDemoLogin = async () => {
-    setIsLoading(true);
-    setErrorMsg(null);
-    await updateProfile({
-      full_name: 'Sarah',
-      baby_name: 'Leo',
-      baby_birth_date: '2026-09-12', // 6 weeks postpartum
-    });
-    router.push('/');
-  };
 
   const handleGoogleLogin = async () => {
     setErrorMsg(null);
@@ -66,7 +54,7 @@ export default function LoginPage() {
 
     if (!isSupabaseConfigured) {
       setErrorMsg(
-        'Supabase environment variables are not detected yet. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local and restart the dev server, or use the Demo button above.'
+        'Supabase environment variables are not detected yet. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local and restart the dev server.'
       );
       return;
     }
@@ -100,7 +88,7 @@ export default function LoginPage() {
           password,
           options: {
             data: {
-              full_name: fullName.trim() || 'Sarah',
+              full_name: fullName.trim() || 'Mama',
             },
             emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
           },
@@ -116,7 +104,7 @@ export default function LoginPage() {
           // Email confirmation is disabled in Supabase -> user is immediately signed in
           await updateProfile({
             id: data.user?.id,
-            full_name: fullName.trim() || 'Sarah',
+            full_name: fullName.trim() || 'Mama',
           });
           router.push('/onboarding');
           router.refresh();
@@ -177,7 +165,7 @@ export default function LoginPage() {
                   isSupabaseConfigured ? 'bg-[#2E7D32] animate-pulse' : 'bg-[#D97736]'
                 }`}
               />
-              <span>{isSupabaseConfigured ? 'Supabase Cloud Connected' : 'Local Sanctuary Mode'}</span>
+              <span>{isSupabaseConfigured ? 'Supabase Cloud Connected' : 'Backend not configured'}</span>
             </span>
           </div>
         </div>
@@ -358,28 +346,6 @@ export default function LoginPage() {
             <span>Continue with Google</span>
           </button>
 
-          <button
-            type="button"
-            onClick={handleDemoLogin}
-            disabled={isLoading}
-            className="w-full py-3 rounded-full bg-[#FAF4F9] hover:bg-[#F3E7F2] border border-[#EBDDE9] text-[#553658] font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#9E4875]" />
-            <span>Enter Sanctuary (Week 6 Demo)</span>
-          </button>
-          <p className="text-[10px] text-center text-[#907492]">
-            Preloaded with Sarah &amp; Leo&apos;s wake windows, nursing logs, and recovery metrics.
-          </p>
-        </div>
-
-        {/* Setup New Profile Link */}
-        <div className="pt-2 text-center border-t border-[#F2E8F1]">
-          <Link
-            href="/onboarding"
-            className="text-xs font-bold text-[#9E4875] hover:underline"
-          >
-            Customize onboarding profile directly &rarr;
-          </Link>
         </div>
 
         {/* Privacy Note */}

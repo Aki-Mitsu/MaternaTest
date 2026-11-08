@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Sparkles, Check } from 'lucide-react';
 import { useMaterna } from '@/lib/context/MaternaContext';
@@ -8,17 +8,56 @@ import { LotusIcon } from '@/components/shared/LotusIcon';
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { profile, isInitialized, isAuthenticated } = useMaterna();
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    if (!isAuthenticated) router.replace('/login');
+    else if (profile.onboarded) router.replace('/');
+  }, [isInitialized, isAuthenticated, profile.onboarded, router]);
+
+  if (!isInitialized || !isAuthenticated || profile.onboarded) {
+    return (
+      <div className="min-h-screen bg-[#F8F3F7] flex items-center justify-center">
+        <LotusIcon className="w-10 h-10 text-[#9E4875] animate-pulse" />
+      </div>
+    );
+  }
+
+  // Mounted only after the profile has loaded, so initial values come straight from the account
+  return (
+    <OnboardingForm
+      initialFullName={profile.full_name && profile.full_name !== 'Mama' ? profile.full_name : ''}
+      initialBabyName={profile.baby_name && profile.baby_name !== 'Baby' ? profile.baby_name : ''}
+    />
+  );
+}
+
+function OnboardingForm({
+  initialFullName,
+  initialBabyName,
+}: {
+  initialFullName: string;
+  initialBabyName: string;
+}) {
+  const router = useRouter();
   const { updateProfile } = useMaterna();
 
   const [step, setStep] = useState<1 | 2>(1);
-  const [fullName, setFullName] = useState('Sarah');
-  const [babyName, setBabyName] = useState('Leo');
-  const [birthDate, setBirthDate] = useState('2026-09-12');
-  const [primaryFocus, setPrimaryFocus] = useState<string[]>([
-    'Wake Windows & Sleep',
-    'Nursing & Milk Supply',
-  ]);
+  const [fullName, setFullName] = useState(initialFullName);
+  const [babyName, setBabyName] = useState(initialBabyName);
+  const [birthDate, setBirthDate] = useState('');
+  const [todayStr, setTodayStr] = useState('');
+  const [primaryFocus, setPrimaryFocus] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const d = new Date();
+    const t = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    setTodayStr(t);
+    setBirthDate((prev) => prev || t);
+  }, []);
 
   const focusOptions = [
     'Wake Windows & Sleep',
@@ -34,15 +73,35 @@ export default function OnboardingPage() {
     );
   };
 
+  const handleContinue = () => {
+    if (!fullName.trim() || !babyName.trim()) {
+      setErrorMsg('Please enter your name and your baby’s name.');
+      return;
+    }
+    if (!birthDate || birthDate > todayStr) {
+      setErrorMsg('Please choose your baby’s birth date (it can’t be in the future).');
+      return;
+    }
+    setErrorMsg(null);
+    setStep(2);
+  };
+
   const handleFinish = async () => {
     setIsSubmitting(true);
-    await updateProfile({
-      full_name: fullName.trim() || 'Sarah',
-      baby_name: babyName.trim() || 'Leo',
+    setErrorMsg(null);
+    const ok = await updateProfile({
+      full_name: fullName.trim(),
+      baby_name: babyName.trim(),
       baby_birth_date: birthDate,
       primary_focus: primaryFocus,
+      onboarded: true,
     });
-    router.push('/');
+    if (!ok) {
+      setErrorMsg('We could not save your profile. Please try again.');
+      setIsSubmitting(false);
+      return;
+    }
+    router.replace('/');
   };
 
   return (
@@ -110,6 +169,7 @@ export default function OnboardingPage() {
                 <input
                   type="date"
                   value={birthDate}
+                  max={todayStr}
                   onChange={(e) => setBirthDate(e.target.value)}
                   className="w-full px-4 py-3 rounded-2xl bg-[#FAF5FA] border border-[#ECE0EB] text-xs text-[#2A162B] font-medium focus:outline-hidden focus:ring-1 focus:ring-[#9E4875]"
                 />
@@ -119,9 +179,15 @@ export default function OnboardingPage() {
               </div>
             </div>
 
+            {errorMsg && (
+              <p role="alert" className="text-xs text-[#9E2B4B] bg-[#FFF2F5] border border-[#FAD4DE] rounded-2xl p-3">
+                {errorMsg}
+              </p>
+            )}
+
             <button
               type="button"
-              onClick={() => setStep(2)}
+              onClick={handleContinue}
               className="w-full py-3.5 rounded-full bg-[#9E4875] hover:bg-[#8B3B64] text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer mt-4"
             >
               <span>Continue</span>
@@ -167,6 +233,12 @@ export default function OnboardingPage() {
                 );
               })}
             </div>
+
+            {errorMsg && (
+              <p role="alert" className="text-xs text-[#9E2B4B] bg-[#FFF2F5] border border-[#FAD4DE] rounded-2xl p-3">
+                {errorMsg}
+              </p>
+            )}
 
             <div className="pt-2 flex items-center gap-2">
               <button
