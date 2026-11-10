@@ -1,215 +1,171 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Pause, RotateCcw, RotateCw, Heart } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, Pause, SkipBack, SkipForward, Heart, Volume2, VolumeX } from 'lucide-react';
 import { useMaterna } from '@/lib/context/MaternaContext';
 import { LotusIcon } from '../shared/LotusIcon';
+import { SerenityEngine, type TrackId } from '@/lib/serenityAudio';
 
 interface Track {
-  id: string;
+  id: TrackId;
   title: string;
   duration: string;
   durationSec: number;
   category: string;
   iconBg: string;
-  baseFreq: number;
-  filterFreq: number;
 }
+
+const TRACKS: Track[] = [
+  {
+    id: 't-1',
+    title: 'Harmonious Wind',
+    duration: '2:10',
+    durationSec: 130,
+    category: 'Womb White Noise',
+    iconBg: 'bg-[#C79BAF]',
+  },
+  {
+    id: 't-2',
+    title: 'Silent Streams',
+    duration: '2:10',
+    durationSec: 130,
+    category: 'Gentle Relaxation',
+    iconBg: 'bg-[#8FA2BA]',
+  },
+  {
+    id: 't-3',
+    title: 'Celestial Calm',
+    duration: '2:10',
+    durationSec: 130,
+    category: 'Newborn Sleep',
+    iconBg: 'bg-[#9887B8]',
+  },
+  {
+    id: 't-4',
+    title: 'Piano Instrument',
+    duration: '4:19',
+    durationSec: 259,
+    category: 'Maternal Peace',
+    iconBg: 'bg-[#A37B9D]',
+  },
+  {
+    id: 't-5',
+    title: 'Peaceful Rain',
+    duration: '3:23',
+    durationSec: 203,
+    category: 'Deep Rest',
+    iconBg: 'bg-[#7C6689]',
+  },
+];
 
 export function SerenityAudioPlayer() {
   const { profile, toggleFavoriteTrack } = useMaterna();
   const [isPlaying, setIsPlaying] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState<string | null>(null);
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
+  const [volume, setVolume] = useState(0.7);
+  const [muted, setMuted] = useState(false);
+
   const activeTrack = selectedTrack ?? profile.favorite_tracks?.[0] ?? 't-1';
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
-  const sourceNodesRef = useRef<AudioNode[]>([]);
+  const engineRef = useRef<SerenityEngine | null>(null);
+  const getEngine = () => {
+    if (!engineRef.current) {
+      engineRef.current = new SerenityEngine(muted ? 0 : volume);
+    }
+    return engineRef.current;
+  };
 
-  const tracks: Track[] = [
-    {
-      id: 't-1',
-      title: 'Harmonious Wind',
-      duration: '2:10',
-      durationSec: 130,
-      category: 'Womb White Noise',
-      iconBg: 'bg-[#C79BAF]',
-      baseFreq: 174,
-      filterFreq: 380,
-    },
-    {
-      id: 't-2',
-      title: 'Silent Streams',
-      duration: '2:10',
-      durationSec: 130,
-      category: 'Gentle Relaxation',
-      iconBg: 'bg-[#8FA2BA]',
-      baseFreq: 285,
-      filterFreq: 520,
-    },
-    {
-      id: 't-3',
-      title: 'Celestial Calm',
-      duration: '2:10',
-      durationSec: 130,
-      category: 'Newborn Sleep',
-      iconBg: 'bg-[#9887B8]',
-      baseFreq: 396,
-      filterFreq: 320,
-    },
-    {
-      id: 't-4',
-      title: 'Piano Instrument',
-      duration: '4:19',
-      durationSec: 259,
-      category: 'Maternal Peace',
-      iconBg: 'bg-[#A37B9D]',
-      baseFreq: 432,
-      filterFreq: 450,
-    },
-    {
-      id: 't-5',
-      title: 'Peaceful Rain',
-      duration: '3:23',
-      durationSec: 203,
-      category: 'Deep Rest',
-      iconBg: 'bg-[#7C6689]',
-      baseFreq: 528,
-      filterFreq: 680,
-    },
-  ];
-
-  const currentTrack = tracks.find((t) => t.id === activeTrack) || tracks[0];
+  const currentTrack = TRACKS.find((t) => t.id === activeTrack) || TRACKS[0];
   const favoriteTracks = profile.favorite_tracks || [];
   const isFavorited = favoriteTracks.includes(currentTrack.id);
 
-  const stopAudioEngine = useCallback(() => {
-    sourceNodesRef.current.forEach((node) => {
-      try {
-        if ('stop' in node && typeof (node as any).stop === 'function') {
-          (node as any).stop();
-        }
-        node.disconnect();
-      } catch {
-        // ignore
-      }
-    });
-    sourceNodesRef.current = [];
+  // Cleanup only. The AudioContext is created inside click handlers (see below).
+  useEffect(() => {
+    return () => {
+      engineRef.current?.dispose();
+      engineRef.current = null;
+    };
   }, []);
 
-  const startAudioEngine = useCallback(
-    (track: Track) => {
-      stopAudioEngine();
-      if (typeof window === 'undefined') return;
-
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioCtx();
-      }
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') {
-        ctx.resume();
-      }
-
-      const masterGain = ctx.createGain();
-      masterGain.gain.setValueAtTime(0.01, ctx.currentTime);
-      masterGain.gain.exponentialRampToValueAtTime(0.14, ctx.currentTime + 1.2);
-      masterGain.connect(ctx.destination);
-      gainNodeRef.current = masterGain;
-
-      // 1. Soft Brown/Pink Noise Generator (Soothing Womb / Rain / Stream Texture)
-      const bufferSize = ctx.sampleRate * 3;
-      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const output = noiseBuffer.getChannelData(0);
-      let lastOut = 0.0;
-      for (let i = 0; i < bufferSize; i++) {
-        const white = Math.random() * 2 - 1;
-        output[i] = (lastOut + 0.02 * white) / 1.02;
-        lastOut = output[i];
-        output[i] *= 1.8;
-      }
-
-      const whiteNoise = ctx.createBufferSource();
-      whiteNoise.buffer = noiseBuffer;
-      whiteNoise.loop = true;
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(track.filterFreq, ctx.currentTime);
-
-      const noiseGain = ctx.createGain();
-      noiseGain.gain.setValueAtTime(0.35, ctx.currentTime);
-
-      whiteNoise.connect(filter);
-      filter.connect(noiseGain);
-      noiseGain.connect(masterGain);
-      whiteNoise.start(0);
-
-      // 2. Warm Ambient Harmonic Pad (Solfeggio / 432Hz Calming Drone)
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      osc1.type = 'sine';
-      osc2.type = 'sine';
-      osc1.frequency.setValueAtTime(track.baseFreq / 2, ctx.currentTime);
-      osc2.frequency.setValueAtTime((track.baseFreq / 2) * 1.5, ctx.currentTime);
-
-      const padGain = ctx.createGain();
-      padGain.gain.setValueAtTime(0.08, ctx.currentTime);
-
-      osc1.connect(padGain);
-      osc2.connect(padGain);
-      padGain.connect(masterGain);
-      osc1.start(0);
-      osc2.start(0);
-
-      sourceNodesRef.current = [whiteNoise, osc1, osc2];
-    },
-    [stopAudioEngine]
-  );
-
+  // Volume / mute
   useEffect(() => {
-    if (isPlaying) {
-      startAudioEngine(currentTrack);
-    } else {
-      stopAudioEngine();
-    }
-    return () => {
-      stopAudioEngine();
-    };
-  }, [isPlaying, activeTrack, currentTrack, startAudioEngine, stopAudioEngine]);
+    engineRef.current?.setVolume(muted ? 0 : volume);
+  }, [volume, muted]);
 
   // 1-second playback timer
   useEffect(() => {
     if (!isPlaying) return;
     const timer = setInterval(() => {
-      setCurrentTimeSec((prev) => {
-        if (prev + 1 >= currentTrack.durationSec) {
-          return 0; // loop seamlessly for sleeping baby
-        }
-        return prev + 1;
-      });
+      // Stops at the end; the auto-advance effect below handles "track finished"
+      setCurrentTimeSec((prev) => Math.min(prev + 1, currentTrack.durationSec));
     }, 1000);
     return () => clearInterval(timer);
   }, [isPlaying, currentTrack.durationSec]);
 
-  const toggleTrackPlay = (id: string) => {
-    if (activeTrack === id) {
-      setIsPlaying(!isPlaying);
+  // ---- Click handlers: audio starts HERE so browsers allow it ----
+
+  const startTrack = (id: TrackId) => {
+    void getEngine().play(id);
+    setSelectedTrack(id);
+    setCurrentTimeSec(0);
+    setIsPlaying(true);
+  };
+
+  const pause = () => {
+    engineRef.current?.stop();
+    setIsPlaying(false);
+  };
+
+  const togglePlay = () => {
+    if (isPlaying) {
+      pause();
     } else {
-      setSelectedTrack(id);
-      setCurrentTimeSec(0);
+      void getEngine().play(currentTrack.id);
       setIsPlaying(true);
     }
   };
 
-  const handleSeekOffset = (deltaSec: number) => {
-    setCurrentTimeSec((prev) =>
-      Math.max(0, Math.min(currentTrack.durationSec, prev + deltaSec))
-    );
+  const toggleTrackPlay = (id: TrackId) => {
+    if (activeTrack === id) {
+      togglePlay();
+    } else {
+      startTrack(id);
+    }
   };
+
+  const currentIndex = TRACKS.findIndex((t) => t.id === currentTrack.id);
+
+  // Playlist finished: turn the music off and reset
+  const finishPlaylist = () => {
+    engineRef.current?.stop();
+    setIsPlaying(false);
+    setCurrentTimeSec(0);
+  };
+
+  const handleNext = () => {
+    if (currentIndex < TRACKS.length - 1) {
+      startTrack(TRACKS[currentIndex + 1].id);
+    } else {
+      finishPlaylist(); // to loop the playlist instead, use: startTrack(TRACKS[0].id);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentIndex > 0) {
+      startTrack(TRACKS[currentIndex - 1].id);
+    } else {
+      startTrack(TRACKS[0].id); // already first: restart it
+    }
+  };
+
+  // When the current track reaches its end, go to the next one (or stop after the last)
+  useEffect(() => {
+    if (isPlaying && currentTimeSec >= currentTrack.durationSec) {
+      handleNext();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTimeSec, isPlaying]);
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -223,141 +179,162 @@ export function SerenityAudioPlayer() {
   );
 
   return (
-    <section className="bg-gradient-to-b from-[#6A4B72] via-[#5A3B60] to-[#462B4A] rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden space-y-6">
+    // Phones/tablets: stacked. Wide screens (xl+): player on the left, track list on the right.
+    <section className="bg-gradient-to-b from-[#6A4B72] via-[#5A3B60] to-[#462B4A] rounded-[32px] p-5 text-white shadow-xl relative overflow-hidden flex flex-col xl:flex-row gap-4 xl:gap-5">
       {/* Background ambient lotus glow */}
       <div className="absolute -top-16 -right-16 w-60 h-60 rounded-full bg-[#A25F88]/30 blur-3xl pointer-events-none"></div>
 
-      {/* Top Header */}
-      <div className="flex items-center justify-between relative z-10">
-        <span className="text-[10px] uppercase font-bold tracking-widest text-[#E6CDDF] bg-white/10 px-3 py-1 rounded-full border border-white/15">
-          SERENITY RHYTHMS
-        </span>
-        <button
-          onClick={() => toggleFavoriteTrack(currentTrack.id)}
-          aria-label="Favorite Track"
-          className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors cursor-pointer"
-        >
-          <Heart className={`w-4 h-4 ${isFavorited ? 'fill-[#E888B4] text-[#E888B4]' : 'text-white'}`} />
-        </button>
-      </div>
-
-      {/* Featured Blooming Lotus Centerpiece */}
-      <div className="flex flex-col items-center text-center py-2 relative z-10 space-y-3">
-        <div className="relative w-28 h-28 flex items-center justify-center">
-          <div
-            className={`absolute inset-0 bg-[#DE85B0]/30 rounded-full blur-2xl ${
-              isPlaying ? 'animate-pulse scale-110' : ''
-            } transition-transform`}
-          ></div>
-          <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-[#9B5584] to-[#BA78A3] p-1 shadow-lg flex items-center justify-center border-2 border-white/30">
-            <LotusIcon className="w-14 h-14 text-white drop-shadow-md" />
-          </div>
-        </div>
-
-        <div className="space-y-0.5">
-          <h3 className="font-serif text-2xl font-bold tracking-tight text-white">
-            {currentTrack.title}
-          </h3>
-          <p className="text-xs text-[#DCC7D9] font-medium">
-            Materna Maternal Sanctuary • {currentTrack.category}
-          </p>
-        </div>
-      </div>
-
-      {/* Audio Scrubber & Controls */}
-      <div className="space-y-3 relative z-10">
-        <div className="space-y-1">
-          <div
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const clickRatio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-              setCurrentTimeSec(Math.round(clickRatio * currentTrack.durationSec));
-            }}
-            className="w-full bg-white/20 h-2 rounded-full overflow-hidden cursor-pointer"
+      {/* LEFT: now playing + controls */}
+      <div className="relative z-10 flex flex-col gap-3 xl:gap-2 xl:flex-1 xl:min-w-0 xl:min-h-0 xl:justify-between">
+        {/* Top Header */}
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase font-bold tracking-widest text-[#E6CDDF] bg-white/10 px-3 py-1 rounded-full border border-white/15">
+            SERENITY RHYTHMS
+          </span>
+          <button
+            onClick={() => toggleFavoriteTrack(currentTrack.id)}
+            aria-label="Favorite Track"
+            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors cursor-pointer"
           >
+            <Heart className={`w-4 h-4 ${isFavorited ? 'fill-[#E888B4] text-[#E888B4]' : 'text-white'}`} />
+          </button>
+        </div>
+
+        {/* Centerpiece */}
+        <div className="flex flex-col items-center text-center gap-1 xl:flex-row xl:text-left xl:gap-3">
+          <div className="relative w-12 h-12 shrink-0 flex items-center justify-center">
             <div
-              className="bg-gradient-to-r from-[#F6B89E] to-[#E888B4] h-full rounded-full transition-all duration-300"
-              style={{ width: `${progressPct}%` }}
+              className={`absolute inset-0 bg-[#DE85B0]/30 rounded-full blur-xl ${
+                isPlaying ? 'animate-pulse scale-110' : ''
+              } transition-transform`}
             ></div>
+            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#9B5584] to-[#BA78A3] p-1 shadow-lg flex items-center justify-center border-2 border-white/30">
+              <LotusIcon className="w-6 h-6 text-white drop-shadow-md" />
+            </div>
           </div>
-          <div className="flex justify-between text-[10px] text-[#D8BDD4] font-medium px-0.5">
-            <span>{formatTime(currentTimeSec)}</span>
-            <span>{currentTrack.duration} mins</span>
+
+          <div className="min-w-0">
+            <h3 className="font-serif text-lg font-bold tracking-tight text-white leading-tight">
+              {currentTrack.title}
+            </h3>
+            <p className="text-[11px] text-[#DCC7D9] font-medium leading-tight xl:truncate">
+              <span className="xl:hidden">Materna Maternal Sanctuary • </span>
+              {currentTrack.category}
+            </p>
           </div>
         </div>
 
-        {/* Playback Controls */}
-        <div className="flex items-center justify-center gap-6 pt-1">
-          <button
-            type="button"
-            onClick={() => handleSeekOffset(-15)}
-            aria-label="Rewind 15 seconds"
-            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-[#E8D4E6] flex items-center justify-center transition-colors cursor-pointer"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
+        {/* Progress, Controls & Volume */}
+        <div className="space-y-1.5">
+          <div className="space-y-1">
+            <div className="w-full bg-white/20 h-2 rounded-full overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-[#F6B89E] to-[#E888B4] h-full rounded-full transition-all duration-300"
+                style={{ width: `${progressPct}%` }}
+              ></div>
+            </div>
+            <div className="flex justify-between text-[10px] text-[#D8BDD4] font-medium px-0.5">
+              <span>{formatTime(currentTimeSec)}</span>
+              <span>{currentTrack.duration} mins</span>
+            </div>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => setIsPlaying(!isPlaying)}
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-            className="w-13 h-13 rounded-full bg-white text-[#634469] flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all cursor-pointer"
-          >
-            {isPlaying ? (
-              <Pause className="w-6 h-6 fill-current" />
-            ) : (
-              <Play className="w-6 h-6 fill-current ml-0.5" />
-            )}
-          </button>
+          <div className="flex items-center justify-center gap-5">
+            <button
+              type="button"
+              onClick={handlePrevious}
+              aria-label="Previous track"
+              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-[#E8D4E6] flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <SkipBack className="w-4 h-4" />
+            </button>
 
-          <button
-            type="button"
-            onClick={() => handleSeekOffset(15)}
-            aria-label="Fast forward 15 seconds"
-            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-[#E8D4E6] flex items-center justify-center transition-colors cursor-pointer"
-          >
-            <RotateCw className="w-4 h-4" />
-          </button>
+            <button
+              type="button"
+              onClick={togglePlay}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+              className="w-10 h-10 rounded-full bg-white text-[#634469] flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all cursor-pointer"
+            >
+              {isPlaying ? (
+                <Pause className="w-5 h-5 fill-current" />
+              ) : (
+                <Play className="w-5 h-5 fill-current ml-0.5" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleNext}
+              aria-label="Next track"
+              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-[#E8D4E6] flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <SkipForward className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 px-1 pb-3">
+            <button
+              type="button"
+              onClick={() => setMuted((m) => !m)}
+              aria-label={muted ? 'Unmute' : 'Mute'}
+              className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-[#E8D4E6] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            >
+              {muted || volume === 0 ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={muted ? 0 : volume}
+              onChange={(e) => {
+                setVolume(Number(e.target.value));
+                setMuted(false);
+              }}
+              aria-label="Volume"
+              className="w-full h-1.5 accent-[#F6B89E] cursor-pointer"
+            />
+          </div>
         </div>
       </div>
 
-      {/* Lower White Card: List of Music */}
-      <div className="bg-white rounded-[26px] p-5 text-[#2A162B] shadow-md space-y-3 relative z-10">
-        <div className="flex items-center justify-between pb-1 border-b border-[#F2E8F0]">
-          <h4 className="font-serif text-base font-bold text-[#2A162B]">List of music</h4>
-          <span className="text-[10px] font-bold text-[#8E738E] bg-[#F7EFF6] px-2.5 py-0.5 rounded-full">
-            {tracks.length} Tracks
+      {/* RIGHT: list of music (scrolls inside the card on wide screens) */}
+      <div className="flex flex-col gap-3 relative z-10 border-t border-white/10 pt-4 xl:border-t-0 xl:pt-1 xl:border-l xl:pl-5 xl:w-[48%] xl:shrink-0 xl:min-h-0">
+        <div className="flex items-center justify-between pb-1 border-b border-white/15">
+          <h4 className="font-serif text-base font-bold text-white">List of music</h4>
+          <span className="text-[10px] font-bold text-[#E6CDDF] bg-white/10 px-2.5 py-0.5 rounded-full">
+            {TRACKS.length} Tracks
           </span>
         </div>
 
-        <div className="space-y-1.5">
-          {tracks.map((track) => {
+        <div className="space-y-1.5 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
+          {TRACKS.map((track) => {
             const isSelected = activeTrack === track.id;
             return (
               <div
                 key={track.id}
                 onClick={() => toggleTrackPlay(track.id)}
-                className={`flex items-center justify-between p-2.5 rounded-2xl transition-all cursor-pointer ${
+                className={`flex items-center justify-between gap-2 p-2 rounded-2xl transition-all cursor-pointer ${
                   isSelected
-                    ? 'bg-[#F9EFF6] border border-[#ECDDEC]'
-                    : 'hover:bg-[#FAF5FA]'
+                    ? 'bg-white/15 border border-white/20'
+                    : 'border border-transparent hover:bg-white/10'
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-full ${track.iconBg} text-white flex items-center justify-center shadow-xs shrink-0`}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`w-8 h-8 rounded-full ${track.iconBg} text-white flex items-center justify-center shadow-xs shrink-0`}>
                     <LotusIcon className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className={`text-xs font-bold flex items-center gap-1.5 ${isSelected ? 'text-[#9E4875]' : 'text-[#2C182D]'}`}>
-                      <span>{track.title}</span>
+                  <div className="min-w-0">
+                    <div className={`text-xs font-bold flex items-center gap-1.5 ${isSelected ? 'text-[#F6B89E]' : 'text-white'}`}>
+                      <span className="leading-tight">{track.title}</span>
                       {favoriteTracks.includes(track.id) && (
-                        <Heart className="w-3 h-3 fill-[#E888B4] text-[#E888B4]" />
+                        <Heart className="w-3 h-3 fill-[#E888B4] text-[#E888B4] shrink-0" />
                       )}
                     </div>
-                    <div className="text-[10px] text-[#8C728C] flex items-center gap-1">
-                      <span>{track.duration} mins</span>
-                      <span>•</span>
-                      <span>{track.category}</span>
+                    <div className="text-[10px] text-[#D8BDD4] flex items-center gap-1">
+                      <span className="shrink-0">{track.duration} mins</span>
+                      <span className="xl:hidden">•</span>
+                      <span className="truncate xl:hidden">{track.category}</span>
                     </div>
                   </div>
                 </div>
@@ -365,10 +342,10 @@ export function SerenityAudioPlayer() {
                 <button
                   type="button"
                   aria-label={`Play ${track.title}`}
-                  className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+                  className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-colors ${
                     isSelected && isPlaying
-                      ? 'bg-[#9E4875] text-white'
-                      : 'bg-[#F4EAF3] text-[#69486F] hover:bg-[#EBDDE9]'
+                      ? 'bg-[#E888B4] text-white'
+                      : 'bg-white/10 text-[#E8D4E6] hover:bg-white/20'
                   }`}
                 >
                   {isSelected && isPlaying ? (
